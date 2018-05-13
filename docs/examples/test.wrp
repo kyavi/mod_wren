@@ -1,0 +1,9 @@
+/**
+ * Hello world! First page!
+ */
+
+System.print("<div>Hello, world!</div>")
+
+for(x in Web.getTestList()) {
+	System.print("<div>%(x)</div>")
+}

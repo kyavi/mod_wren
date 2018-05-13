@@ -172,19 +172,42 @@ static void wren_release_state(WrenState *wren_state)
 	wren_state->lock = false;
 }
 
+static char* wren_load(WrenState *wren_state)
+{
+	FILE *file = fopen(wren_state->request_rec->filename, "r");
+	char *buf;
+	size_t file_len;
+
+	if(file == NULL)
+		return NULL;
+
+	fseek(file, 0, SEEK_END);
+	file_len = ftell(file) ?: 1;
+	fseek(file, 0, SEEK_SET);
+
+	buf = calloc(file_len + 1, 1);
+	file_len = fread(buf, 1, file_len, file);
+	buf[file_len + 1] = '\0';
+	fclose(file);
+
+	return buf;
+}
+
 static int wren_handler(request_rec *r)
 {
 	WrenState *wren_state = wren_acquire_state(r);
+	char *wren_code;
+
+	if((wren_code = wren_load(wren_state)) == NULL) {
+		wren_release_state(wren_state);
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
 
 	ap_set_content_type(r, "text/html");
-	wrenInterpret(wren_state->vm,
-			"System.print(\"<div>Hello, world!</div>\")\n"
-			"for(x in Web.getTestList()) {\n"
-			"	System.print(\"<div>%(x)</div>\")\n"
-			"}\n"
-		);
+	wrenInterpret(wren_state->vm, wren_code);
 
 	wren_release_state(wren_state);
+	free(wren_code);
 
 	return OK;
 }
