@@ -7,25 +7,16 @@
 <body>
 	<h1>Wren Test</h1>
 	<p>
-		Printing a list of numbers \0\a from the server:
+		Headers from apache:
 	</p><?wren
-for(x in Web.getTestList()) {
-	System.write("<div>%(x)</div>")
+var env = Web.getEnv()
+System.write("") /* Bug: This should not be necessary. */
+
+for(x in env.keys) {
+   System.write("<div><b>%(x):</b> %(env[x])</div>")
 } ?>
 	<p>
-		And a few more times, with single characters in between the Wren tags.
-	</p><?wren
-for(x in Web.getTestList()) {
-	System.write("<div>%(x)</div>")
-} ?>"<?wren
-for(x in Web.getTestList()) {
-	System.write("<div>%(x)</div>")
-} ?>%<?wren
-for(x in Web.getTestList()) {
-	System.write("<div>%(x)</div>")
-} ?>
-	<p>
-		And the list of escape characters from Wren's docs:
+		The list of escape characters from Wren's docs:
 	</p>
 	<pre>
 "\0" // The NUL byte: 0.

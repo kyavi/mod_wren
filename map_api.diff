@@ -1,0 +1,81 @@
+diff --git a/src/include/wren.h b/src/include/wren.h
+index 2c91afa..1c9d001 100644
+--- a/src/include/wren.h
++++ b/src/include/wren.h
+@@ -230,6 +230,7 @@ typedef enum
+   WREN_TYPE_NUM,
+   WREN_TYPE_FOREIGN,
+   WREN_TYPE_LIST,
++  WREN_TYPE_MAP,
+   WREN_TYPE_NULL,
+   WREN_TYPE_STRING,
+ 
+@@ -405,6 +406,9 @@ void* wrenSetSlotNewForeign(WrenVM* vm, int slot, int classSlot, size_t size);
+ // Stores a new empty list in [slot].
+ void wrenSetSlotNewList(WrenVM* vm, int slot);
+ 
++// Stores a new empty map in [slot]
++void wrenSetSlotNewMap(WrenVM* vm, int slot);
++
+ // Stores null in [slot].
+ void wrenSetSlotNull(WrenVM* vm, int slot);
+ 
+@@ -435,6 +439,10 @@ void wrenGetListElement(WrenVM* vm, int listSlot, int index, int elementSlot);
+ // an element, use `-1` for the index.
+ void wrenInsertInList(WrenVM* vm, int listSlot, int index, int elementSlot);
+ 
++// Takes the value stored in [valueSlot], and inserts it into the map
++// stored at [mapSlot] with key [keySlot]
++void wrenInsertInMap(WrenVM* vm, int mapSlot, int keySlot, int valueSlot);
++
+ // Looks up the top level variable with [name] in [module] and stores it in
+ // [slot].
+ void wrenGetVariable(WrenVM* vm, const char* module, const char* name,
+diff --git a/src/vm/wren_value.h b/src/vm/wren_value.h
+index 31f19f5..0e9bb13 100644
+--- a/src/vm/wren_value.h
++++ b/src/vm/wren_value.h
+@@ -76,6 +76,7 @@
+ #define IS_FOREIGN(value) (wrenIsObjType(value, OBJ_FOREIGN))   // ObjForeign
+ #define IS_INSTANCE(value) (wrenIsObjType(value, OBJ_INSTANCE)) // ObjInstance
+ #define IS_LIST(value) (wrenIsObjType(value, OBJ_LIST))         // ObjList
++#define IS_MAP(value) (wrenIsObjType(value, OBJ_MAP))           // ObjMap
+ #define IS_RANGE(value) (wrenIsObjType(value, OBJ_RANGE))       // ObjRange
+ #define IS_STRING(value) (wrenIsObjType(value, OBJ_STRING))     // ObjString
+ 
+diff --git a/src/vm/wren_vm.c b/src/vm/wren_vm.c
+index 5a7c132..edb3188 100644
+--- a/src/vm/wren_vm.c
++++ b/src/vm/wren_vm.c
+@@ -1674,6 +1674,11 @@ void wrenSetSlotNewList(WrenVM* vm, int slot)
+   setSlot(vm, slot, OBJ_VAL(wrenNewList(vm, 0)));
+ }
+ 
++void wrenSetSlotNewMap(WrenVM* vm, int slot)
++{
++  setSlot(vm, slot, OBJ_VAL(wrenNewMap(vm)));
++}
++
+ void wrenSetSlotNull(WrenVM* vm, int slot)
+ {
+   setSlot(vm, slot, NULL_VAL);
+@@ -1728,6 +1733,19 @@ void wrenInsertInList(WrenVM* vm, int listSlot, int index, int elementSlot)
+   wrenListInsert(vm, list, vm->apiStack[elementSlot], index);
+ }
+ 
++void wrenInsertInMap(WrenVM *vm, int mapSlot, int keySlot, int valueSlot)
++{
++  validateApiSlot(vm, mapSlot);
++  validateApiSlot(vm, keySlot);
++  validateApiSlot(vm, valueSlot);
++
++  ASSERT(IS_MAP(vm->apiStack[mapSlot]), "Must insert into a map.");
++
++  ObjMap* map = AS_MAP(vm->apiStack[mapSlot]);
++
++  wrenMapSet(vm, map, vm->apiStack[keySlot], vm->apiStack[valueSlot]);
++}
++
+ void wrenGetVariable(WrenVM* vm, const char* module, const char* name,
+                      int slot)
+ {

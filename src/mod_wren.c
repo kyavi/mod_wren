@@ -1,4 +1,5 @@
 #include <apr_pools.h>
+#include <apr_tables.h>
 #include <httpd.h>
 #include <http_config.h>
 #include <http_log.h>
@@ -79,25 +80,39 @@ static void wren_fn_default(WrenVM *vm)
 }
 
 /**
- * wrenSetSlotNewList(vm, list_slot)
+ * Return the headers from the current request_rec as a map of key/value
+ * pairs.
  *
- * wrenSetSlotDouble(vm, value_slot, value)
- * wrenInsertInList(vm, list_slot, index, value_slot)
- *
- * Index of -1 to push back.
+ * Bug: must call something like 'System.write("")' or 'var v={}' for the map
+ * to actually be registered properly on the other side. Not sure why. I think
+ * it's a Wren problem rather than something over here.
  */
-static void wren_fn_get_test_list(WrenVM *vm)
+static void wren_fn_getEnv(WrenVM *vm)
 {
-	wrenSetSlotNewList(vm, 0);
+	WrenState *wren_state = wrenGetUserData(vm);
+	const apr_array_header_t *headers =
+		apr_table_elts(wren_state->request_rec->headers_in);
+	const apr_table_entry_t *e = (apr_table_entry_t*) headers->elts;
 
-	wrenSetSlotDouble(vm, 1, 1.0);
-	wrenInsertInList(vm, 0, -1, 1);
-	wrenSetSlotDouble(vm, 2, 2.0);
-	wrenInsertInList(vm, 0, -1, 2);
-	wrenSetSlotDouble(vm, 3, 3.0);
-	wrenInsertInList(vm, 0, -1, 3);
+	wrenEnsureSlots(vm, headers->nelts * 2 + 1);
+	wrenSetSlotNewMap(vm, 0);
+
+	for(size_t i = 0; i < headers->nelts; ++i) {
+		int key_slot = i * 2 + 1;
+
+		wrenSetSlotString(vm, key_slot, e[i].key);
+		wrenSetSlotString(vm, key_slot + 1, e[i].val);
+		wrenInsertInMap(vm, 0, key_slot, key_slot + 1);
+	}
 }
 
+/**
+ * Maps foreign method signatures to functions. We receive a signature of a
+ * function inside a class, inside a module, and see if we have something that
+ * maps up.
+ *
+ * We currently only bind things inside the "main" module.
+ */
 WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
 		const char *class_name, bool is_static, const char *signature)
 {
@@ -109,8 +124,8 @@ WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
 
 	if(strcmp(class_name, "Web") == 0) {
 		if(is_static == true) {
-			if(strcmp(signature, "getTestList()") == 0)
-				return wren_fn_get_test_list;
+			if(strcmp(signature, "getEnv()") == 0)
+				return wren_fn_getEnv;
 		}
 	}
 
@@ -144,7 +159,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 		 */
 		wrenInterpret(wren_states[i].vm,
 				"class Web {\n"
-				"	foreign static getTestList()\n"
+				"	foreign static getEnv()\n"
 				"}\n"
 			);
 	}

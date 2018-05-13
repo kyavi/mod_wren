@@ -25,7 +25,9 @@ $(WRENDIR):
 	git clone https://github.com/munificent/wren $(WRENDIR)
 
 $(WRENDIR)/wren: $(WRENDIR)
-	cd $(WRENDIR) && make
+	cd $(WRENDIR) && \
+		git checkout 40c927f4402bb6ff74fe8aa257bf8042eeff6544 && \
+		git apply ../../map_api.diff && make
 
 clean:
 	@rm -rf $(OUTDIR)
