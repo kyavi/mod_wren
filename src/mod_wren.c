@@ -272,11 +272,12 @@ static char* wren_parse(WrenState *wren_state)
 	 * TODO: There needs to be some method of dynamically resizing this, since
 	 * it's currently possible to exceed it.
 	 */
-	out_buf = calloc(file_len * 15, 1);
-
 	size_t file_index = 0;
 	size_t out_index = 0;
 	char *next_tag;
+
+	out_buf = calloc(file_len * 15, 1);
+	out_buf[out_index++] = '{';
 
 	/*
 	 * Go through the file looking for Wren tags and converting HTML blocks to
@@ -321,6 +322,8 @@ static char* wren_parse(WrenState *wren_state)
 		out_index += closing_tag - (file_buf + file_index);
 		file_index += closing_tag - (file_buf + file_index) + CLOSING_TAG_LEN;
 	}
+
+	out_buf[out_index++] = '}';
 
 	free(file_buf);
 	return out_buf;
