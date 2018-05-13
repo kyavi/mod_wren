@@ -291,6 +291,10 @@ static char* wren_parse(WrenState *wren_state)
 	size_t out_index = 0;
 	char *next_tag;
 
+	/* Whilst this is a work in progress - easily request the raw file. */
+	if(strcmp(wren_state->request_rec->args ?: "", "raw") == 0)
+		return file_buf;
+
 	out_buf = calloc(file_len * 15, 1);
 	out_buf[out_index++] = '{';
 
@@ -359,7 +363,9 @@ static int wren_handler(request_rec *r)
 	}
 
 	/* Pre-release debug: ?raw will print the generated Wren code. */
-	if(strcmp(r->args ?: "", "compiled") == 0) {
+	if(strcmp(r->args ?: "", "compiled") == 0 ||
+			strcmp(r->args ?: "", "raw") == 0)
+	{
 		ap_set_content_type(r, "text/plain");
 		ap_rprintf(r, "%s", wren_code);
 	}
