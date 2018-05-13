@@ -62,6 +62,56 @@ static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
 		);
 }
 
+static void wren_fn_default(WrenVM *vm)
+{
+	/*
+	 * Default function to bind, because we prefer logging a failed bind with
+	 * Apache instead of crashing.
+	 */
+}
+
+/**
+ * wrenSetSlotNewList(vm, list_slot)
+ *
+ * wrenSetSlotDouble(vm, value_slot, value)
+ * wrenInsertInList(vm, list_slot, index, value_slot)
+ *
+ * Index of -1 to push back.
+ */
+static void wren_fn_get_test_list(WrenVM *vm)
+{
+	wrenSetSlotNewList(vm, 0);
+
+	wrenSetSlotDouble(vm, 1, 1.0);
+	wrenInsertInList(vm, 0, -1, 1);
+	wrenSetSlotDouble(vm, 2, 2.0);
+	wrenInsertInList(vm, 0, -1, 2);
+	wrenSetSlotDouble(vm, 3, 3.0);
+	wrenInsertInList(vm, 0, -1, 3);
+}
+
+WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
+		const char *class_name, bool is_static, const char *signature)
+{
+	if(strcmp(module, "main") != 0) {
+		ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
+				"Tried to bind foreign method in module '%s'", module);
+		return wren_fn_default;
+	}
+
+	if(strcmp(class_name, "Web") == 0) {
+		if(is_static == true) {
+			if(strcmp(signature, "getTestList()") == 0)
+				return wren_fn_get_test_list;
+		}
+	}
+
+	ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
+			"Failed to find foreign method '%s.%s'", class_name, signature);
+
+	return wren_fn_default;
+}
+
 static void module_init(apr_pool_t *pool, server_rec *s)
 {
 	ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
@@ -71,12 +121,24 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 	wrenInitConfiguration(&config);
 	config.writeFn = wren_write;
 	config.errorFn = wren_err;
+	config.bindForeignMethodFn = wren_bind_foreign_methods;
 
 	wren_states = calloc(NUM_WREN_STATES, sizeof(WrenState));
 
 	for(size_t i = 0; i < NUM_WREN_STATES; ++i) {
 		wren_states[i].vm = wrenNewVM(&config);
 		wrenSetUserData(wren_states[i].vm, &wren_states[i]);
+
+		/*
+		 * We only declare foreign methods once whilst creating the interpeter
+		 * because they persist, and adding them again each time inside the
+		 * handler's wrenInterpret causes a fatal error.
+		 */
+		wrenInterpret(wren_states[i].vm,
+				"class Web {\n"
+				"	foreign static getTestList()\n"
+				"}\n"
+			);
 	}
 }
 
@@ -115,7 +177,12 @@ static int wren_handler(request_rec *r)
 	WrenState *wren_state = wren_acquire_state(r);
 
 	ap_set_content_type(r, "text/html");
-	wrenInterpret(wren_state->vm, "System.print(\"Hello, world!\")");
+	wrenInterpret(wren_state->vm,
+			"System.print(\"<div>Hello, world!</div>\")\n"
+			"for(x in Web.getTestList()) {\n"
+			"	System.print(\"<div>%(x)</div>\")\n"
+			"}\n"
+		);
 
 	wren_release_state(wren_state);
 
