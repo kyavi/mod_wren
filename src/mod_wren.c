@@ -9,8 +9,19 @@
 
 #include "wren.h"
 
-static WrenVM *wren_vm;
-static request_rec *current_rr;
+/**
+ * A WrenState contains a VM and everything relevant to the current request
+ * it's serving.
+ */
+typedef struct {
+	request_rec *request_rec;
+	bool lock;
+	WrenVM *vm;
+} WrenState;
+
+/* TODO: Add mutex locks for enabling multiple states. */
+#define NUM_WREN_STATES 1
+WrenState *wren_states;
 
 /**
  * Sets the output of Wren's print functions.
@@ -19,7 +30,8 @@ static request_rec *current_rr;
  */
 static void wren_write(WrenVM *vm, const char *str)
 {
-	ap_rprintf(current_rr, "%s", str);
+	WrenState *wren_state = wrenGetUserData(vm);
+	ap_rprintf(wren_state->request_rec, "%s", str);
 }
 
 static void module_init(apr_pool_t *pool, server_rec *s)
@@ -30,15 +42,53 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 	WrenConfiguration config;
 	wrenInitConfiguration(&config);
 	config.writeFn = wren_write;
-	wren_vm = wrenNewVM(&config);
+
+	wren_states = calloc(NUM_WREN_STATES, sizeof(WrenState));
+
+	for(size_t i = 0; i < NUM_WREN_STATES; ++i) {
+		wren_states[i].vm = wrenNewVM(&config);
+		wrenSetUserData(wren_states[i].vm, &wren_states[i]);
+	}
+}
+
+/**
+ * Returns the first available WrenState, or spins until one is available.
+ */
+static WrenState* wren_acquire_state(request_rec *r)
+{
+	WrenState *out;
+
+	for(size_t i = 0; i < NUM_WREN_STATES; ++i) {
+		if(wren_states[i].lock == true)
+			continue;
+
+		wren_states[i].lock = true;
+		out = &wren_states[i];
+		out->request_rec = r;
+		return out;
+	}
+
+	apr_sleep(125000);
+	return wren_acquire_state(r);
+}
+
+/**
+ * Release a WrenState to be reused.
+ */
+static void wren_release_state(WrenState *wren_state)
+{
+	wren_state->request_rec = NULL;
+	wren_state->lock = false;
 }
 
 static int wren_handler(request_rec *r)
 {
-	ap_set_content_type(r, "text/html");
-	current_rr = r;
+	WrenState *wren_state = wren_acquire_state(r);
 
-	wrenInterpret(wren_vm, "System.print(\"Hello world!\")");
+	ap_set_content_type(r, "text/html");
+	wrenInterpret(wren_state->vm, "System.print(\"Hello world!\")");
+
+	wren_release_state(wren_state);
 
 	return OK;
 }
