@@ -23,6 +23,13 @@ typedef struct {
 #define NUM_WREN_STATES 1
 WrenState *wren_states;
 
+#define ERROR_START \
+	"<div style='display: inline-block; width: 100%%; " \
+		"background-color: #E0E0E0;'>"
+
+#define ERROR_END \
+	"</div>"
+
 /**
  * Sets the output of Wren's print functions.
  *
@@ -34,6 +41,27 @@ static void wren_write(WrenVM *vm, const char *str)
 	ap_rprintf(wren_state->request_rec, "%s", str);
 }
 
+static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
+		int line, const char *message)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+
+	/*
+	 * Wren prints out the script name, which doesn't help very much.
+	 * There might be subtleties I'm missing right now though.
+	 */
+	if(message[0] == '(' && strcmp(message, "(script)") == 0)
+		return;
+
+	ap_rprintf(wren_state->request_rec,
+			ERROR_START
+			"<p><b>Line %d: </b>" /* line number */
+			"%s</p>" /* error message */
+			ERROR_END,
+			line, message
+		);
+}
+
 static void module_init(apr_pool_t *pool, server_rec *s)
 {
 	ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
@@ -42,6 +70,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 	WrenConfiguration config;
 	wrenInitConfiguration(&config);
 	config.writeFn = wren_write;
+	config.errorFn = wren_err;
 
 	wren_states = calloc(NUM_WREN_STATES, sizeof(WrenState));
 
@@ -86,7 +115,7 @@ static int wren_handler(request_rec *r)
 	WrenState *wren_state = wren_acquire_state(r);
 
 	ap_set_content_type(r, "text/html");
-	wrenInterpret(wren_state->vm, "System.print(\"Hello world!\")");
+	wrenInterpret(wren_state->vm, "System.print(\"Hello, world!\")");
 
 	wren_release_state(wren_state);
 
