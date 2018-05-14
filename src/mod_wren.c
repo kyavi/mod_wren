@@ -354,8 +354,18 @@ static char* wren_parse(WrenState *wren_state)
  */
 static int wren_handler(request_rec *r)
 {
-	WrenState *wren_state = wren_acquire_state(r);
+	WrenState *wren_state;
 	char *wren_code;
+
+	/* Make sure the request is for us. */
+	if(strcmp(r->handler ?: "", "wren") != 0)
+		return DECLINED;
+
+	/* TODO: allow other methods (most critically, POST). */
+	if(r->method_number != M_GET)
+		return HTTP_METHOD_NOT_ALLOWED;
+
+	wren_state = wren_acquire_state(r);
 
 	if((wren_code = wren_parse(wren_state)) == NULL) {
 		wren_release_state(wren_state);
