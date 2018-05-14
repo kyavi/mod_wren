@@ -85,6 +85,30 @@ static void wren_fn_default(WrenVM *vm)
 }
 
 /**
+ * Inserts a provided array of headers into a Wren map at the specified 'slot'.
+ *
+ * Makes two assumptions:
+ *   - There's a map to be written to at slot 0.
+ *   - There are enough slots to write to.
+ *
+ * 'slots' gets incremented by the number of slots written to.
+ */
+static void wren_headers_to_map(WrenState *wren_state,
+		const apr_array_header_t *headers, int *slot)
+{
+	WrenVM *vm = wren_state->vm;
+	const apr_table_entry_t *e = (apr_table_entry_t*) headers->elts;
+
+	for(size_t i = 0; i < headers->nelts; ++i) {
+		wrenSetSlotString(vm, *slot, e[i].key);
+		wrenSetSlotString(vm, *slot + 1, e[i].val);
+		wrenInsertInMap(vm, 0, *slot, *slot + 1);
+
+		*slot += 2;
+	}
+}
+
+/**
  * Return the headers from the current request_rec as a map of key/value
  * pairs.
  *
@@ -95,20 +119,18 @@ static void wren_fn_default(WrenVM *vm)
 static void wren_fn_getEnv(WrenVM *vm)
 {
 	WrenState *wren_state = wrenGetUserData(vm);
-	const apr_array_header_t *headers =
+	const apr_array_header_t *req_headers =
 		apr_table_elts(wren_state->request_rec->headers_in);
-	const apr_table_entry_t *e = (apr_table_entry_t*) headers->elts;
+	const apr_array_header_t *subprocess_env =
+		apr_table_elts(wren_state->request_rec->subprocess_env);
+	int slot = 0;
 
-	wrenEnsureSlots(vm, headers->nelts * 2 + 1);
-	wrenSetSlotNewMap(vm, 0);
+	/* Enough slots for a key value pair per headers, plus the map. */
+	wrenEnsureSlots(vm, (req_headers->nelts + subprocess_env->nelts) * 2 + 1);
+	wrenSetSlotNewMap(vm, slot++);
 
-	for(size_t i = 0; i < headers->nelts; ++i) {
-		int key_slot = i * 2 + 1;
-
-		wrenSetSlotString(vm, key_slot, e[i].key);
-		wrenSetSlotString(vm, key_slot + 1, e[i].val);
-		wrenInsertInMap(vm, 0, key_slot, key_slot + 1);
-	}
+	wren_headers_to_map(wren_state, req_headers, &slot);
+	wren_headers_to_map(wren_state, subprocess_env, &slot);
 }
 
 /**
