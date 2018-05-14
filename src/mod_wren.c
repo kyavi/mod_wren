@@ -34,10 +34,15 @@ WrenState *wren_states;
 #define ERROR_END \
 	"</div>"
 
-#define OPENING_TAG "<?wren"
-#define OPENING_TAG_LEN strlen(OPENING_TAG)
-#define CLOSING_TAG "?>"
-#define CLOSING_TAG_LEN strlen(CLOSING_TAG)
+#define TAG_BLOCK_OPEN "<?wren"
+#define TAG_BLOCK_OPEN_LEN strlen(TAG_BLOCK_OPEN)
+#define TAG_BLOCK_CLOSE "?>"
+#define TAG_BLOCK_CLOSE_LEN strlen(TAG_BLOCK_CLOSE)
+
+#define TAG_EXPR_OPEN "<%="
+#define TAG_EXPR_OPEN_LEN strlen(TAG_EXPR_OPEN)
+#define TAG_EXPR_CLOSE "%>"
+#define TAG_EXPR_CLOSE_LEN strlen(TAG_EXPR_CLOSE)
 
 /**
  * Sets the output of Wren's print functions.
@@ -252,9 +257,16 @@ static void wren_parse_insert_html(char *file_buf, char *wren_buf,
 }
 
 /**
- * Parse an Wren page, looking for blocks between OPENING_TAG and CLOSING_TAG to
- * run as regular Wren code, and wrapping the rest (HTML blocks) inside
- * System.write calls for Wren to spit out.
+ * Parse a Wren page, looking for Wren code blocks, Wren expressions, and
+ * regular HTML.
+ *
+ * Wren blocks (<?wren ... ?>) get inserted straight into the output buffer.
+ *
+ * Wren expressions (<%= ... %>) get wrapped in an expression call
+ * (System.write("%(...)")).
+ *
+ * The rest is regular HTML, which gets its special characters escaped before
+ * being placed in a System.write("...") call.
  */
 static char* wren_parse(WrenState *wren_state)
 {
@@ -289,7 +301,6 @@ static char* wren_parse(WrenState *wren_state)
 	 */
 	size_t file_index = 0;
 	size_t out_index = 0;
-	char *next_tag;
 
 	/* Whilst this is a work in progress - easily request the raw file. */
 	if(strcmp(wren_state->request_rec->args ?: "", "raw") == 0)
@@ -303,13 +314,18 @@ static char* wren_parse(WrenState *wren_state)
 	 * Wren System.write statements.
 	 */
 	while(file_index < file_len) {
-		next_tag = strstr((char*)(file_buf + file_index), OPENING_TAG);
+		char *next_block_open = strstr(
+				file_buf + file_index, TAG_BLOCK_OPEN) ?: (char*)INTPTR_MAX;
+		char *next_expr_open = strstr(
+				file_buf + file_index, TAG_EXPR_OPEN) ?: (char*)INTPTR_MAX;
 
 		/*
 		 * There are no more Wren segments to parse. Add the rest to the output
 		 * buffer as HTML.
 		 */
-		if(next_tag == NULL) {
+		if(next_block_open == (char*)INTPTR_MAX &&
+				next_expr_open == (char*)INTPTR_MAX)
+		{
 			size_t html_len = file_len - file_index;
 			wren_parse_insert_html(file_buf, out_buf,
 					&file_index, &out_index, html_len);
@@ -317,29 +333,53 @@ static char* wren_parse(WrenState *wren_state)
 		}
 
 		/*
-		 * Otherwise, we've hit a Wren segment. Find the end tag and place the
-		 * code in out output buffer.
+		 * Otherwise, we've hit a Wren segment.
+		 *
+		 * This could be a Wren code block (<?wren ... ?>) or an expression
+		 * (<%= ... %>), so we check for which tag we've hit. If we're in
+		 * an expression, we wrap it in a System.write("%(...))".
 		 */
+		bool expr = next_block_open > next_expr_open ? true : false;
+		char *next             = expr ? next_expr_open     : next_block_open;
+		char *closing_tag      = expr ? TAG_EXPR_CLOSE     : TAG_BLOCK_CLOSE;
+		size_t opening_tag_len = expr ? TAG_EXPR_OPEN_LEN  : TAG_BLOCK_OPEN_LEN;
+		size_t closing_tag_len = expr ? TAG_EXPR_CLOSE_LEN : TAG_BLOCK_CLOSE_LEN;
+
 		if(file_len - file_index > 0) {
-			size_t html_len = next_tag - (file_buf + file_index);
+			size_t html_len = next - (file_buf + file_index);
 			wren_parse_insert_html(file_buf, out_buf,
 					&file_index, &out_index, html_len);
 		}
 
-		file_index += OPENING_TAG_LEN;
-		char *closing_tag = strstr(file_buf + file_index, CLOSING_TAG);
+		file_index += opening_tag_len;
+		char *closing_tag_pos = strstr(file_buf + file_index, closing_tag);
 
-		if(closing_tag == NULL) {
+		if(closing_tag_pos == NULL) {
 			/*
 			 * Mismatched opening/closing tag. This should probably be handled,
-			 * but for now, just let wren fail.
+			 * but for now, just let Wren fail.
 			 */
 			break;
 		}
 
-		strncpy(out_buf + out_index, file_buf + file_index, closing_tag - (file_buf + file_index));
-		out_index += closing_tag - (file_buf + file_index);
-		file_index += closing_tag - (file_buf + file_index) + CLOSING_TAG_LEN;
+		if(expr == true) {
+			strncpy(out_buf + out_index, "\nSystem.write(\"%(", 17);
+			out_index += 17;
+		}
+
+		/*
+		 * Write out whatever we found in our Wren tags and push the file read
+		 * index along to the end of the closing tag.
+		 */
+		strncpy(out_buf + out_index, file_buf + file_index,
+				closing_tag_pos - (file_buf + file_index));
+		out_index += closing_tag_pos - (file_buf + file_index);
+		file_index += closing_tag_pos - (file_buf + file_index) + closing_tag_len;
+
+		if(expr == true) {
+			strncpy(out_buf + out_index, ")\")\n", 4);
+			out_index += 4;
+		}
 	}
 
 	out_buf[out_index++] = '}';

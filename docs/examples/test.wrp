@@ -31,4 +31,16 @@ for(x in env.keys) {
 "\t" // Tab.
 "\v" // Vertical tab.
 	</pre>
+	<p>
+		Expression block can be written like so:
+	</p>
+	<pre>
+&lt;%= "This " + "is " + "an " + "expression " + "block " + "of " +
+	"concatenated " + "strings." %&gt;
+	</pre>
+	<p>
+		Resulting in the output:
+		<%= "This " + "is " + "an " + "expression " + "block " + "of " +
+			"concatenated " + "strings." %>
+	</p>
 </body>
