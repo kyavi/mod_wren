@@ -134,10 +134,87 @@ static void wren_fn_getEnv(WrenVM *vm)
 }
 
 /**
- * Read POST parameters and return them as a map of key/value pairs.
+ * Parse URL parameters and add them to a Wren map of key/value pairs, starting
+ * at slot 0.
  *
  * TODO: Have multiple inputs with the same name be read as a table (currently
  * the last input overrides all of the prior ones).
+ */
+static void wren_parse_url_params(WrenState *wren_state, char *args)
+{
+	WrenVM *vm = wren_state->vm;
+	request_rec *r = wren_state->request_rec;
+
+	/* We'll increment the number of slots we expect as we parse arguments. */
+	int num_slots = 1;
+	int slot = 0;
+
+	wrenSetSlotNewMap(vm, slot++);
+
+	/* Count up the number of key value pairs. */
+	{
+		/* Assigned arguments come through as key1=val1&key2=val2.
+		 * If an ampersand is to the right of an equals sign, it's
+		 * an empty argument we don't have to worry about.
+		 */
+		char *ptr = args;
+		while((ptr = strchr(ptr, '=')) != NULL) {
+			++ptr;
+
+			if(*ptr != '&' && *ptr != '\0')
+				num_slots += 2;
+		}
+	}
+
+	wrenEnsureSlots(vm, num_slots);
+
+	/*
+	 * Loop through each argument, separate the key/value pair, un-URIfy them,
+	 * and push them to the Wren map.
+	 */
+	char *ptr = args;
+	char *key, *val;
+	while(*ptr && (val = ap_getword(r->pool, (const char**)&ptr, '&'))) {
+		key = ap_getword(r->pool, (const char**)&val, '=');
+
+		if(*val == '\0')
+			continue;
+
+		for(size_t i = 0; i < strlen(val); ++i) {
+			if(val[i] == '+')
+				val[i] = ' ';
+		}
+
+		ap_unescape_url((char*)key);
+		ap_unescape_url((char*)val);
+
+		wrenSetSlotString(vm, slot, key);
+		wrenSetSlotString(vm, slot + 1, val);
+		wrenInsertInMap(vm, 0, slot, slot + 1);
+
+		slot += 2;
+	}
+
+}
+
+/**
+ * Read GET parameters and return them as a Wren map of key/value pairs.
+ */
+static void wren_fn_parseGet(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	char *args = wren_state->request_rec->args;
+
+	if(args == NULL) {
+		wrenSetSlotNull(vm, 0);
+		return;
+	}
+
+	wren_parse_url_params(wren_state, args);
+}
+
+/**
+ * Read POST parameters and return them as a Wren map of key/value pairs.
  */
 static void wren_fn_parsePost(WrenVM *vm)
 {
@@ -151,13 +228,6 @@ static void wren_fn_parsePost(WrenVM *vm)
 		wrenSetSlotNull(vm, 0);
 		return;
 	}
-
-
-	/* We'll increment the number of slots we expect as we parse arguments. */
-	int num_slots = 1;
-	int slot = 0;
-
-	wrenSetSlotNewMap(vm, slot++);
 
 	/*
 	 * We read through the POST arguments one HUGE_STRING_LEN at a time,
@@ -183,49 +253,7 @@ static void wren_fn_parsePost(WrenVM *vm)
 		}
 	}
 
-	/* Count up the number of key value pairs. */
-	{
-		/* Assigned arguments come through as key1=val1&key2=val2.
-		 * If an ampersand is to the right of an equals sign, it's
-		 * an empty argument we don't have to worry about.
-		 */
-		char *ptr = args_buf;
-		while((ptr = strchr(ptr, '=')) != NULL) {
-			++ptr;
-
-			if(*ptr != '&' && *ptr != '\0')
-				num_slots += 2;
-		}
-	}
-
-	wrenEnsureSlots(vm, num_slots);
-
-	/*
-	 * Loop through each argument, separate the key/value pair, un-URIfy them,
-	 * and push them to the Wren map.
-	 */
-	char *ptr = args_buf;
-	char *key, *val;
-	while(*ptr && (val = ap_getword(r->pool, (const char**)&ptr, '&'))) {
-		key = ap_getword(r->pool, (const char**)&val, '=');
-
-		if(*val == '\0')
-			continue;
-
-		for(size_t i = 0; i < strlen(val); ++i) {
-			if(val[i] == '+')
-				val[i] = ' ';
-		}
-
-		ap_unescape_url((char*)key);
-		ap_unescape_url((char*)val);
-
-		wrenSetSlotString(vm, slot, key);
-		wrenSetSlotString(vm, slot + 1, val);
-		wrenInsertInMap(vm, 0, slot, slot + 1);
-
-		slot += 2;
-	}
+	wren_parse_url_params(wren_state, args_buf);
 }
 
 /**
@@ -248,6 +276,8 @@ WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
 		if(is_static == true) {
 			if(strcmp(signature, "getEnv()") == 0)
 				return wren_fn_getEnv;
+			if(strcmp(signature, "parseGet()") == 0)
+				return wren_fn_parseGet;
 			if(strcmp(signature, "parsePost()") == 0)
 				return wren_fn_parsePost;
 		}
@@ -284,6 +314,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 		wrenInterpret(wren_states[i].vm,
 				"class Web {\n"
 				"	foreign static getEnv()\n"
+				"	foreign static parseGet()\n"
 				"	foreign static parsePost()\n"
 				"}\n"
 			);

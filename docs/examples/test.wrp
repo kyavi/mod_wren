@@ -17,15 +17,21 @@
 		<input type="submit">
 	</form>
 	<div><?wren
-var post_params = Web.parsePost()
-
-if(post_params is Map) {
-	System.write("<div><b>Returned values:</b></div>")
-
-	for(x in post_params.keys) {
-		System.write("<div><b>%(x):</b> %(post_params[x])</div>")
+var print_params = Fn.new {|params, label|
+	if(params.type != Map) {
+		return
 	}
-} ?>
+
+	System.write("<div><b>%(label) values:</b></div>")
+
+	for(x in params.keys) {
+		System.write("<div><b>%(x):</b> %(params[x])</div>")
+	}
+}
+
+print_params.call(Web.parseGet(), "GET")
+print_params.call(Web.parsePost(), "POST")
+?>
 	</div>
 	<p>
 		Headers from apache:
