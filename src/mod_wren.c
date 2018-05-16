@@ -134,6 +134,101 @@ static void wren_fn_getEnv(WrenVM *vm)
 }
 
 /**
+ * Read POST parameters and return them as a map of key/value pairs.
+ *
+ * TODO: Have multiple inputs with the same name be read as a table (currently
+ * the last input overrides all of the prior ones).
+ */
+static void wren_fn_parsePost(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	request_rec *r = wren_state->request_rec;
+
+	/* Check that we're okay to read our arguments. */
+	if(ap_setup_client_block(r, REQUEST_CHUNKED_ERROR) != OK ||
+			ap_should_client_block(r) == false)
+	{
+		wrenSetSlotNull(vm, 0);
+		return;
+	}
+
+
+	/* We'll increment the number of slots we expect as we parse arguments. */
+	int num_slots = 1;
+	int slot = 0;
+
+	wrenSetSlotNewMap(vm, slot++);
+
+	/*
+	 * We read through the POST arguments one HUGE_STRING_LEN at a time,
+	 * appending the results to args_buf to end up with the complete list
+	 * of POST arguments.
+	 */
+	char *args_buf;
+	{
+		char read_buf[HUGE_STRING_LEN];
+		apr_off_t len = r->remaining;
+		apr_off_t read_pos = 0;
+		apr_off_t read_len;
+		apr_off_t read_size;
+
+		args_buf = apr_pcalloc(r->pool, len + 1);
+
+		while((read_len = ap_get_client_block(r, read_buf, sizeof(read_buf))) > 0) {
+			/* We should never exceed the read buffer length, but just in case. */
+			read_size = read_pos + read_len > len ? len - read_pos : read_len;
+
+			memcpy(args_buf + read_pos, read_buf, read_size);
+			read_pos += read_size;
+		}
+	}
+
+	/* Count up the number of key value pairs. */
+	{
+		/* Assigned arguments come through as key1=val1&key2=val2.
+		 * If an ampersand is to the right of an equals sign, it's
+		 * an empty argument we don't have to worry about.
+		 */
+		char *ptr = args_buf;
+		while((ptr = strchr(ptr, '=')) != NULL) {
+			++ptr;
+
+			if(*ptr != '&' && *ptr != '\0')
+				num_slots += 2;
+		}
+	}
+
+	wrenEnsureSlots(vm, num_slots);
+
+	/*
+	 * Loop through each argument, separate the key/value pair, un-URIfy them,
+	 * and push them to the Wren map.
+	 */
+	char *ptr = args_buf;
+	char *key, *val;
+	while(*ptr && (val = ap_getword(r->pool, (const char**)&ptr, '&'))) {
+		key = ap_getword(r->pool, (const char**)&val, '=');
+
+		if(*val == '\0')
+			continue;
+
+		for(size_t i = 0; i < strlen(val); ++i) {
+			if(val[i] == '+')
+				val[i] = ' ';
+		}
+
+		ap_unescape_url((char*)key);
+		ap_unescape_url((char*)val);
+
+		wrenSetSlotString(vm, slot, key);
+		wrenSetSlotString(vm, slot + 1, val);
+		wrenInsertInMap(vm, 0, slot, slot + 1);
+
+		slot += 2;
+	}
+}
+
+/**
  * Maps foreign method signatures to functions. We receive a signature of a
  * function inside a class, inside a module, and see if we have something that
  * maps up.
@@ -153,6 +248,8 @@ WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
 		if(is_static == true) {
 			if(strcmp(signature, "getEnv()") == 0)
 				return wren_fn_getEnv;
+			if(strcmp(signature, "parsePost()") == 0)
+				return wren_fn_parsePost;
 		}
 	}
 
@@ -187,6 +284,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 		wrenInterpret(wren_states[i].vm,
 				"class Web {\n"
 				"	foreign static getEnv()\n"
+				"	foreign static parsePost()\n"
 				"}\n"
 			);
 	}
@@ -424,7 +522,8 @@ static int wren_handler(request_rec *r)
 		return DECLINED;
 
 	/* TODO: allow other methods (most critically, POST). */
-	if(r->method_number != M_GET)
+	if(r->method_number != M_GET &&
+			r->method_number != M_POST)
 		return HTTP_METHOD_NOT_ALLOWED;
 
 	wren_state = wren_acquire_state(r);

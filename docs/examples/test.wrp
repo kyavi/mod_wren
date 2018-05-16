@@ -6,6 +6,27 @@
 </head>
 <body>
 	<h1>Wren Test</h1>
+	<span>
+		Post test:
+	</span>
+	<form method="post">
+		<input type="text" placeholder="one" name="one">
+		<input type="text" placeholder="two" name="two">
+		<input type="text" placeholder="three" name="three">
+		<input type="checkbox" name="checkbox">
+		<input type="submit">
+	</form>
+	<div><?wren
+var post_params = Web.parsePost()
+
+if(post_params is Map) {
+	System.write("<div><b>Returned values:</b></div>")
+
+	for(x in post_params.keys) {
+		System.write("<div><b>%(x):</b> %(post_params[x])</div>")
+	}
+} ?>
+	</div>
 	<p>
 		Headers from apache:
 	</p><?wren
