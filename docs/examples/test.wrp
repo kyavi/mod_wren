@@ -5,7 +5,10 @@
 	<meta charset="utf-8"></meta>
 </head>
 <body>
+
 	<h1>Wren Test</h1>
+
+	<h2>Params</h2>
 	<span>
 		Post test:
 	</span>
@@ -33,15 +36,28 @@ print_params.call(Web.parseGet(), "GET")
 print_params.call(Web.parsePost(), "POST")
 ?>
 	</div>
-	<p>
-		Headers from apache:
-	</p><?wren
+
+	<h2>Cookies</h2>
+	<p><?wren
+var cookie = Web.getCookie("TestCookie")
+
+if(cookie is Null) {
+	System.print("Setting <b>TestCookie</b> at / for twenty seconds")
+	Web.setCookie("TestCookie", "TestCookieVal", 20, "/")
+} else {
+	System.print("Retrieved <b>TestCookie</b> with value <b>%(cookie)</b>")
+} ?>
+	</p>
+
+	<h2>Apache headers</h2><?wren
 var env = Web.getEnv()
 System.write("") /* Bug: This should not be necessary. */
 
 for(x in env.keys) {
    System.write("<div><b>%(x):</b> %(env[x])</div>")
 } ?>
+
+	<h2>Escape characters</h2>
 	<p>
 		The list of escape characters from Wren's docs:
 	</p>
@@ -58,6 +74,8 @@ for(x in env.keys) {
 "\t" // Tab.
 "\v" // Vertical tab.
 	</pre>
+
+	<h2>Expressions</h2>
 	<p>
 		Expression block can be written like so:
 	</p>

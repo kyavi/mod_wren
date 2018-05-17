@@ -1,4 +1,5 @@
 #include <apr_pools.h>
+#include <apr_strings.h>
 #include <apr_tables.h>
 #include <httpd.h>
 #include <http_config.h>
@@ -257,6 +258,74 @@ static void wren_fn_parsePost(WrenVM *vm)
 }
 
 /**
+ * Retrieve the cookie value for a provided key.
+ *
+ * Slot 1: Cookie name
+ */
+static void wren_fn_getCookie(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	request_rec *r = wren_state->request_rec;
+
+	const char *cookie_name = wrenGetSlotString(vm, 1);
+	const char *data = apr_table_get(r->headers_in, "cookie");
+	const char *pair;
+	const char *key;
+	const char *val;
+
+	if(cookie_name == NULL || data == NULL) {
+		wrenSetSlotNull(vm, 0);
+		return;
+	}
+
+	/* Search through all the cookies set until we find the one we want. */
+	while(*data && (pair = ap_getword(r->pool, &data, ';'))) {
+		val = ap_getword(r->pool, (const char**)&pair, ';');
+		key = ap_getword(r->pool, (const char**)&val, '=');
+
+		/* Convert encoded to the expected readable form. */
+		while(*key && (*key == ' ' || *key == '\t' || *key == '\r' || *key == '\n'))
+			key++;
+
+		if(strcmp(key, cookie_name) == 0) {
+			wrenSetSlotString(vm, 0, val);
+			return;
+		}
+	}
+}
+
+/**
+ * Set a cookie.
+ *
+ * Slot 1: Cookie name (string)
+ * Slot 2: Cookie value (string)
+ * Slot 3: Expiration time in seconds (double)
+ * Slot 4: Cookie path (string)
+ */
+static void wren_fn_setCookie(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	request_rec *r = wren_state->request_rec;
+
+	const char *cookie;
+	const char *name  = wrenGetSlotString(vm, 1);
+	const char *value = wrenGetSlotString(vm, 2);
+	int expires       = wrenGetSlotDouble(vm, 3);
+	const char *path  = wrenGetSlotString(vm, 4);
+
+	if(expires > 0) {
+		cookie = apr_psprintf(r->pool, "%s=%s; Max-Age=%u;Path=%s;",
+				name, value, expires, path);
+	}
+	else {
+		cookie = apr_psprintf(r->pool, "%s=%s; Path=%s;",
+				name, value, path);
+	}
+
+	apr_table_set(r->headers_out, "Set-Cookie", cookie);
+}
+
+/**
  * Maps foreign method signatures to functions. We receive a signature of a
  * function inside a class, inside a module, and see if we have something that
  * maps up.
@@ -276,10 +345,14 @@ WrenForeignMethodFn wren_bind_foreign_methods(WrenVM *vm, const char *module,
 		if(is_static == true) {
 			if(strcmp(signature, "getEnv()") == 0)
 				return wren_fn_getEnv;
+			if(strcmp(signature, "getCookie(_)") == 0)
+				return wren_fn_getCookie;
 			if(strcmp(signature, "parseGet()") == 0)
 				return wren_fn_parseGet;
 			if(strcmp(signature, "parsePost()") == 0)
 				return wren_fn_parsePost;
+			if(strcmp(signature, "setCookie(_,_,_,_)") == 0)
+				return wren_fn_setCookie;
 		}
 	}
 
@@ -313,9 +386,11 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 		 */
 		wrenInterpret(wren_states[i].vm,
 				"class Web {\n"
+				"	foreign static getCookie(a)\n"
 				"	foreign static getEnv()\n"
 				"	foreign static parseGet()\n"
 				"	foreign static parsePost()\n"
+				"	foreign static setCookie(a,b,c,d)\n"
 				"}\n"
 			);
 	}
