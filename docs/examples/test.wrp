@@ -37,8 +37,24 @@ print_params.call(Web.parsePost(), "POST")
 
 	<h2>Databases</h2><?wren
 var db = WebDB.open("host=localhost,user=root")
-?>
-	<div><%= db.error == null ? "Connected to database" : db.error %></div><?wren
+
+if(db.error == null && db.run("use Wren;") == true) {
+	System.write("<div><b>Wren TestTable:</b></div>")
+
+	var vals = db.query("select * from TestTable where K=1;") || []
+	System.write("")
+
+	if(db.error != null) System.write("<div>%(db.error)</div>")
+
+	for(row in vals) {
+		var k = row[0]
+		var v = row[1]
+
+		System.write("<div>%(k)/%(v)</div>")
+	}
+} else {
+	System.write("<div>%(db.error)</div>")
+}
 db.close()
 ?>
 
