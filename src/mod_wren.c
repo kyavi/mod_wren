@@ -855,6 +855,8 @@ static void wren_parse_insert_html(char *file_buf, char *wren_buf,
  *
  * The rest is regular HTML, which gets its special characters escaped before
  * being placed in a System.write("...") call.
+ *
+ * Returns an allocated string on success, otherwise NULL.
  */
 static char* wren_parse(WrenState *wren_state)
 {
@@ -869,6 +871,9 @@ static char* wren_parse(WrenState *wren_state)
 	fseek(file, 0, SEEK_END);
 	file_len = ftell(file) ?: 1;
 	fseek(file, 0, SEEK_SET);
+
+	if(file_len == 0)
+		return strdup("");
 
 	file_buf = calloc(file_len + 1, 1);
 	read_len = fread(file_buf, 1, file_len, file);
