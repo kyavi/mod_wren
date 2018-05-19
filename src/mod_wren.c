@@ -90,14 +90,6 @@ static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
 		);
 }
 
-static void wren_fn_default(WrenVM *vm)
-{
-	/*
-	 * Default function to bind, because we prefer logging a failed bind with
-	 * Apache instead of crashing.
-	 */
-}
-
 /**
  * Opens a connection to a database through mod_dbd with 'params', with a new
  * memory pool.
@@ -502,47 +494,45 @@ static void wren_fn_setCookie(WrenVM *vm)
  *
  * We currently only bind things inside the "main" module.
  */
-WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm, const char *module,
-		const char *class_name, bool is_static, const char *signature)
+static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
+		const char *module, const char *class_name, bool is_static,
+		const char *signature)
 {
-	if(strcmp(module, "main") != 0) {
-		ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
-				"Tried to bind foreign method in module '%s'", module);
-		return wren_fn_default;
-	}
-
-	if(strcmp(class_name, "Web") == 0) {
-		if(is_static == true) {
-			if(strcmp(signature, "getEnv()") == 0)
-				return wren_fn_getEnv;
-			if(strcmp(signature, "getCookie(_)") == 0)
-				return wren_fn_getCookie;
-			if(strcmp(signature, "parseGet()") == 0)
-				return wren_fn_parseGet;
-			if(strcmp(signature, "parsePost()") == 0)
-				return wren_fn_parsePost;
-			if(strcmp(signature, "setCookie(_,_,_,_)") == 0)
-				return wren_fn_setCookie;
+	if(strcmp(module, "main") == 0) {
+		if(strcmp(class_name, "Web") == 0) {
+			if(is_static == true) {
+				if(strcmp(signature, "getEnv()") == 0)
+					return wren_fn_getEnv;
+				if(strcmp(signature, "getCookie(_)") == 0)
+					return wren_fn_getCookie;
+				if(strcmp(signature, "parseGet()") == 0)
+					return wren_fn_parseGet;
+				if(strcmp(signature, "parsePost()") == 0)
+					return wren_fn_parsePost;
+				if(strcmp(signature, "setCookie(_,_,_,_)") == 0)
+					return wren_fn_setCookie;
+			}
 		}
-	}
 
-	if(strcmp(class_name, "WebDB") == 0) {
-		if(is_static == false) {
-			if(strcmp(signature, "init open(_)") == 0)
-				return wren_foreign_webdb_open;
-			if(strcmp(signature, "close()") == 0)
-				return wren_foreign_webdb_close;
-			if(strcmp(signature, "error") == 0)
-				return wren_foreign_webdb_error;
-			if(strcmp(signature, "clearError()") == 0)
-				return wren_foreign_webdb_clearError;
+		if(strcmp(class_name, "WebDB") == 0) {
+			if(is_static == false) {
+				if(strcmp(signature, "init open(_)") == 0)
+					return wren_foreign_webdb_open;
+				if(strcmp(signature, "close()") == 0)
+					return wren_foreign_webdb_close;
+				if(strcmp(signature, "error") == 0)
+					return wren_foreign_webdb_error;
+				if(strcmp(signature, "clearError()") == 0)
+					return wren_foreign_webdb_clearError;
+			}
 		}
+
 	}
 
 	ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
 			"Failed to find foreign method '%s.%s'", class_name, signature);
 
-	return wren_fn_default;
+	return NULL;
 }
 
 /**
@@ -554,10 +544,12 @@ WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm, const char *module,
  * Finalize doesn't run when the object leaves scope. It gets called whenever
  * the garbage collection gets to it.
  */
-WrenForeignClassMethods wren_bind_foreign_class(WrenVM *vm, const char *module,
-	const char *class_name)
+static WrenForeignClassMethods wren_bind_foreign_class(WrenVM *vm,
+		const char *module, const char *class_name)
 {
 	WrenForeignClassMethods ret;
+	ret.allocate = NULL;
+	ret.finalize = NULL;
 
 	if(strcmp(module, "main") == 0) {
 		if(strcmp(class_name, "WebDB") == 0) {
