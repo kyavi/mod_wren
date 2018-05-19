@@ -58,6 +58,9 @@ WrenState *wren_states;
 #define TAG_EXPR_CLOSE "%>"
 #define TAG_EXPR_CLOSE_LEN strlen(TAG_EXPR_CLOSE)
 
+/* The amount by which the page output buffer capacity increases on resize. */
+#define PARSE_BUFFER_GROWTH_RATE 1.5
+
 /**
  * Sets the output of Wren's print functions.
  *
@@ -789,6 +792,56 @@ static void wren_release_state(WrenState *wren_state)
 }
 
 /**
+ * Resizes the given wren_buf to be larger than the current capacity.
+ *
+ * Hopefully PARSE_BUFFER_GROWTH_RATE is sensible enough that the number of
+ * times this happens is kept to a minimum.
+ */
+static void parse_grow_buffer(char **wren_buf, size_t *wren_index,
+		size_t *capacity)
+{
+	size_t new_capacity = *capacity * PARSE_BUFFER_GROWTH_RATE + 1;
+	char *new_buf = calloc(new_capacity, 1);
+
+	strncpy(new_buf, *wren_buf, *wren_index);
+
+	free(*wren_buf);
+	*wren_buf = new_buf;
+	*capacity = new_capacity;
+}
+
+/**
+ * Write the given write_str to the wren_buf, resizing if necessary and pushing
+ * wren_index along.
+ */
+static void parse_write(char **wren_buf, size_t *wren_index, size_t *capacity,
+		const char *write_str)
+{
+	size_t len = strlen(write_str);
+
+	while(*wren_index + len >= *capacity)
+		parse_grow_buffer(wren_buf, wren_index, capacity);
+
+	strncpy(*wren_buf + *wren_index, write_str, len);
+	*wren_index += len;
+}
+
+/**
+ * Copy write_len from buf to wren_buf, resizing wren_buf if necessary and
+ * pushing wren_index and buf_index along.
+ */
+static void parse_write_from_buf(char **wren_buf, size_t *wren_index,
+		size_t *capacity, const char *buf, size_t *buf_index, size_t write_len)
+{
+	while(*wren_index + write_len >= *capacity)
+		parse_grow_buffer(wren_buf, wren_index, capacity);
+
+	strncpy(*wren_buf + *wren_index, buf + *buf_index, write_len);
+	*buf_index += write_len;
+	*wren_index += write_len;
+}
+
+/**
  * Write an HTML block inside the file_buf, starting from file_index,
  * to the output wren_buf, starting at wren_index.
  *
@@ -796,15 +849,15 @@ static void wren_release_state(WrenState *wren_state)
  * within the file. wren_index will get progressed a bit more, html_len plus
  * extra characters for function calls and escaping.
  */
-static void wren_parse_insert_html(char *file_buf, char *wren_buf,
-		size_t *file_index, size_t *wren_index, size_t html_len)
+static void parse_write_html(char **wren_buf, size_t *wren_index,
+		size_t *wren_capacity, const char *file_buf, size_t *file_index,
+		size_t html_len)
 {
 	if(html_len == 0 || (html_len == 1 && *(file_buf + *file_index) == '\n'))
 		return;
 
 	/* Start write */
-	strncpy(wren_buf + *wren_index, "\nSystem.write(\"", 15);
-	*wren_index += 15;
+	parse_write(wren_buf, wren_index, wren_capacity, "\nSystem.write(\"");
 
 	/*
 	 * Write the actual HTML segment to the buffer, escaping forbidden
@@ -824,10 +877,10 @@ static void wren_parse_insert_html(char *file_buf, char *wren_buf,
 
 		size_t segment_len = next_char - (file_buf + *file_index);
 
-		strncpy(wren_buf + *wren_index, (file_buf + *file_index), segment_len);
-		*file_index += segment_len;
-		*wren_index += segment_len + 1;
-		wren_buf[*wren_index - 1] = '\\';
+		parse_write_from_buf(wren_buf, wren_index, wren_capacity, file_buf,
+				file_index, segment_len);
+
+		parse_write(wren_buf, wren_index, wren_capacity, "\\");
 		html_len -= segment_len;
 
 		next_quote   = strchr(file_buf + *file_index + 1, '"')  ?: (char*)INTPTR_MAX;
@@ -835,13 +888,11 @@ static void wren_parse_insert_html(char *file_buf, char *wren_buf,
 		next_slash   = strchr(file_buf + *file_index + 1, '\\') ?: (char*)INTPTR_MAX;
 	} while(html_len > 0);
 
-	strncpy(wren_buf + *wren_index, (file_buf + *file_index), html_len);
-	*file_index += html_len;
-	*wren_index += html_len;
+	parse_write_from_buf(wren_buf, wren_index, wren_capacity, file_buf,
+			file_index, html_len);
 
-	/* Close up the write. */
-	strncpy(wren_buf + *wren_index, "\")\n", 3);
-	*wren_index += 3;
+	/* Close up the System.write. */
+	parse_write(wren_buf, wren_index, wren_capacity, "\")\n");
 }
 
 /**
@@ -888,19 +939,17 @@ static char* wren_parse(WrenState *wren_state)
 	 * Allocate another buffer for the output Wren code. This needs to be
 	 * bigger than the input to account for the function calls and escaping
 	 * we add.
-	 *
-	 * TODO: There needs to be some method of dynamically resizing this, since
-	 * it's currently possible to exceed it.
 	 */
 	size_t file_index = 0;
 	size_t out_index = 0;
+	size_t out_capacity = MIN(128, file_len * PARSE_BUFFER_GROWTH_RATE);
 
 	/* Whilst this is a work in progress - easily request the raw file. */
 	if(strcmp(wren_state->request_rec->args ?: "", "raw") == 0)
 		return file_buf;
 
-	out_buf = calloc(file_len * 15, 1);
-	out_buf[out_index++] = '{';
+	out_buf = calloc(out_capacity, 1);
+	parse_write(&out_buf, &out_index, &out_capacity, "{\n");
 
 	/*
 	 * Go through the file looking for Wren tags and converting HTML blocks to
@@ -920,8 +969,8 @@ static char* wren_parse(WrenState *wren_state)
 				next_expr_open == (char*)INTPTR_MAX)
 		{
 			size_t html_len = file_len - file_index;
-			wren_parse_insert_html(file_buf, out_buf,
-					&file_index, &out_index, html_len);
+			parse_write_html(&out_buf, &out_index, &out_capacity, file_buf,
+					&file_index, html_len);
 			break;
 		}
 
@@ -940,8 +989,8 @@ static char* wren_parse(WrenState *wren_state)
 
 		if(file_len - file_index > 0) {
 			size_t html_len = next - (file_buf + file_index);
-			wren_parse_insert_html(file_buf, out_buf,
-					&file_index, &out_index, html_len);
+			parse_write_html(&out_buf, &out_index, &out_capacity, file_buf,
+					&file_index, html_len);
 		}
 
 		file_index += opening_tag_len;
@@ -956,26 +1005,25 @@ static char* wren_parse(WrenState *wren_state)
 		}
 
 		if(expr == true) {
-			strncpy(out_buf + out_index, "\nSystem.write(\"%(", 17);
-			out_index += 17;
+			parse_write(&out_buf, &out_index, &out_capacity,
+					"\nSystem.write(\"%(");
 		}
 
 		/*
 		 * Write out whatever we found in our Wren tags and push the file read
 		 * index along to the end of the closing tag.
 		 */
-		strncpy(out_buf + out_index, file_buf + file_index,
-				closing_tag_pos - (file_buf + file_index));
-		out_index += closing_tag_pos - (file_buf + file_index);
-		file_index += closing_tag_pos - (file_buf + file_index) + closing_tag_len;
+		size_t write_len = closing_tag_pos - (file_buf + file_index);
+		parse_write_from_buf(&out_buf, &out_index, &out_capacity, file_buf,
+				&file_index, write_len);
 
-		if(expr == true) {
-			strncpy(out_buf + out_index, ")\")\n", 4);
-			out_index += 4;
-		}
+		if(expr == true)
+			parse_write(&out_buf, &out_index, &out_capacity, ")\")\n");
+
+		file_index += closing_tag_len;
 	}
 
-	out_buf[out_index++] = '}';
+	parse_write(&out_buf, &out_index, &out_capacity, "\n}");
 
 	free(file_buf);
 	return out_buf;
