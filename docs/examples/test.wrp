@@ -5,9 +5,7 @@
 	<meta charset="utf-8"></meta>
 </head>
 <body>
-
 	<h1>Wren Test</h1>
-
 	<h2>Params</h2>
 	<span>
 		Post test:
@@ -36,6 +34,13 @@ print_params.call(Web.parseGet(), "GET")
 print_params.call(Web.parsePost(), "POST")
 ?>
 	</div>
+
+	<h2>Databases</h2><?wren
+var db = WebDB.open("host=localhost,user=root")
+?>
+	<div><%= db.error == null ? "Connected to database" : db.error %></div><?wren
+db.close()
+?>
 
 	<h2>Cookies</h2>
 	<p><?wren
