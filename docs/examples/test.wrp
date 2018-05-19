@@ -42,7 +42,6 @@ if(db.error == null && db.run("use Wren;") == true) {
 	System.write("<div><b>Wren TestTable:</b></div>")
 
 	var vals = db.query("select * from TestTable where K=1;") || []
-	System.write("")
 
 	if(db.error != null) System.write("<div>%(db.error)</div>")
 
@@ -72,7 +71,6 @@ if(cookie is Null) {
 
 	<h2>Apache headers</h2><?wren
 var env = Web.getEnv()
-System.write("") /* Bug: This should not be necessary. */
 
 for(x in env.keys) {
    System.write("<div><b>%(x):</b> %(env[x])</div>")

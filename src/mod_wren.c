@@ -392,10 +392,6 @@ static void wren_headers_to_map(WrenState *wren_state,
 /**
  * Return the headers from the current request_rec as a map of key/value
  * pairs.
- *
- * Bug: must call something like 'System.write("")' or 'var v={}' for the map
- * to actually be registered properly on the other side. Not sure why. I think
- * it's a Wren problem rather than something over here.
  */
 static void wren_fn_getEnv(WrenVM *vm)
 {
@@ -619,16 +615,18 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 	if(strcmp(module, "main") == 0) {
 		if(strcmp(class_name, "Web") == 0) {
 			if(is_static == true) {
-				if(strcmp(signature, "getEnv()") == 0)
-					return wren_fn_getEnv;
 				if(strcmp(signature, "getCookie(_)") == 0)
 					return wren_fn_getCookie;
-				if(strcmp(signature, "parseGet()") == 0)
-					return wren_fn_parseGet;
-				if(strcmp(signature, "parsePost()") == 0)
-					return wren_fn_parsePost;
 				if(strcmp(signature, "setCookie(_,_,_,_)") == 0)
 					return wren_fn_setCookie;
+
+				if(strcmp(signature, "wrapped_getEnv()") == 0)
+					return wren_fn_getEnv;
+				if(strcmp(signature, "wrapped_parseGet()") == 0)
+					return wren_fn_parseGet;
+				if(strcmp(signature, "wrapped_parsePost()") == 0)
+					return wren_fn_parsePost;
+
 			}
 		}
 
@@ -640,12 +638,12 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 					return wren_foreign_webdb_close;
 				if(strcmp(signature, "run(_)") == 0)
 					return wren_foreign_webdb_run;
-				if(strcmp(signature, "query(_)") == 0)
-					return wren_foreign_webdb_query;
 				if(strcmp(signature, "error") == 0)
 					return wren_foreign_webdb_error;
 				if(strcmp(signature, "clearError()") == 0)
 					return wren_foreign_webdb_clearError;
+				if(strcmp(signature, "wrapped_query(_)") == 0)
+					return wren_foreign_webdb_query;
 			}
 		}
 	}
@@ -701,26 +699,54 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 		wrenSetUserData(wren_states[i].vm, &wren_states[i]);
 
 		/*
-		 * We only declare foreign methods once whilst creating the interpeter
-		 * because they persist, and adding them again each time inside the
-		 * handler's wrenInterpret causes a fatal error.
+		 * Declare foreign methods as the first thing the VM runs so that
+		 * they're available for all page loads.
+		 *
+		 * TODO: Wren has a bug with the foreign method API where methods where
+		 * for methods that return a list, the list comes out as a Num type
+		 * until something else has been run. To work around this we have
+		 * foreign methods returning lists act as a wrapper for the actual
+		 * functionality, plus a print before the return.
 		 */
 		wrenInterpret(wren_states[i].vm,
 				"class Web {\n"
 				"	foreign static getCookie(a)\n"
-				"	foreign static getEnv()\n"
-				"	foreign static parseGet()\n"
-				"	foreign static parsePost()\n"
 				"	foreign static setCookie(a,b,c,d)\n"
+				"	foreign static wrapped_getEnv()\n"
+				"	foreign static wrapped_parseGet()\n"
+				"	foreign static wrapped_parsePost()\n"
+
+				"	static getEnv() {\n"
+				"		var ret = Web.wrapped_getEnv()\n"
+				"		System.write(\"\")\n"
+				"		return ret\n"
+				"	}\n"
+				"	static parseGet() {\n"
+				"		var ret = Web.wrapped_parseGet()\n"
+				"		System.write(\"\")\n"
+				"		return ret\n"
+				"	}\n"
+				"	static parsePost() {\n"
+				"		var ret = Web.wrapped_parsePost()\n"
+				"		System.write(\"\")\n"
+				"		return ret\n"
+				"	}\n"
 				"}\n"
 				"\n"
+
 				"foreign class WebDB {\n"
 				"	foreign construct open(a)\n"
 				"	foreign close()\n"
 				"	foreign run(a)\n"
-				"	foreign query(a)\n"
 				"	foreign error\n"
 				"	foreign clearError()\n"
+
+				"	foreign wrapped_query(a)\n"
+				"	query(q) {\n"
+				"		var ret = this.wrapped_query(q)\n"
+				"		System.write(\"\")\n"
+				"		return ret\n"
+				"	}\n"
 				"}\n"
 			);
 	}
