@@ -30,26 +30,32 @@ for (x in env.keys) {
 
 ### static parseGet()
 
-Returns any GET parameters as a Map of key/value strings, or an empty table if
+Returns any GET parameters as a Map of key/value pairs, or an empty table if
 there's nothing to parse.
 
+The value of each key/value pair will be a string unless multiple parameters
+use the same key, in which case it will be a list of strings.
+
 ```javascript
-/* Page request /?testing=true */
+/* Page request /?testing=true&dup=true&dup=true */
 
 var env = Web.getEnv()
 
 if (env["Request-Method"] == "GET") {
 	var getParams = Web.parseGet()
-	var testVal = getParams["testing"] || "not received"
-
-	System.write("<div>Testing: %(testVal)</div>")
+	System.write(getParams["testing"].type) /* String */
+	System.write(getParams["dup"].type)     /* List */
+	System.write(getParams["notsent"].type) /* Null*/
 }
 ```
 
 ### static parsePost()
 
 Returns any POST parameters as a Map of key/value strings, or an empty table if
-there's nothing to parse.
+there's nothing to parse. Only returns values on the first call.
+
+The value of each key/value pair will be a string unless multiple parameters
+use the same key, in which case it will be a list of strings.
 
 ```javascript
 var env = Web.getEnv()
@@ -59,6 +65,8 @@ if (env["Request-Method"] == "POST") {
 	var username = postParams["username"]
 
 	System.write("<div>Username: %(username)</div>")
+
+	var postParamsAgain = Web.parsePost() /* Second call is always {} */
 }
 ```
 

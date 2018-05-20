@@ -462,8 +462,8 @@ static void wren_fn_getEnv(WrenVM *vm)
  * Parse URL parameters and add them to a Wren map of key/value pairs, starting
  * at slot 0.
  *
- * TODO: Have multiple inputs with the same name be read as a table (currently
- * the last input overrides all of the prior ones).
+ * Map values will be strings unless multiple values were using the same key,
+ * in which case it will be a list of strings.
  */
 static void wren_parse_url_params(WrenState *wren_state, char *args)
 {
@@ -471,7 +471,7 @@ static void wren_parse_url_params(WrenState *wren_state, char *args)
 	request_rec *r = wren_state->request_rec;
 
 	/* We'll increment the number of slots we expect as we parse arguments. */
-	int num_slots = 1;
+	int num_args = 0;
 	int slot = 0;
 
 	wrenSetSlotNewMap(vm, slot++);
@@ -487,24 +487,47 @@ static void wren_parse_url_params(WrenState *wren_state, char *args)
 			++ptr;
 
 			if(*ptr != '&' && *ptr != '\0')
-				num_slots += 2;
+				++num_args;
 		}
 	}
 
-	wrenEnsureSlots(vm, num_slots);
+	/*
+	 * We need enough slots for:
+	 *  - a key/value pair per key (num_args * 2)
+	 *  - every key potentially having two values, meaning three slots ( * 1.5)
+	 *  - the returned map ( + 1)
+	 */
+	wrenEnsureSlots(vm, num_args * 2 * 1.5 + 1);
 
 	/*
 	 * Loop through each argument, separate the key/value pair, un-URIfy them,
 	 * and push them to the Wren map.
 	 */
+
 	char *ptr = args;
 	char *key, *val;
+
+	/*
+	 * If we have a unique key it's stored as a string. If the key is reused
+	 * we store it as a list. So we have to keep track of the keys as we go
+	 * along, and where the values are currently stored.
+	 */
+	int unique_keys = 0;
+
+	struct {
+		const char *key;
+		bool is_list;
+		int slot; /* Value slot - the key slot will be this - 1 */
+	} keys[num_args];
+	memset(keys, 0x0, sizeof(keys));
+
 	while(*ptr && (val = ap_getword(r->pool, (const char**)&ptr, '&'))) {
 		key = ap_getword(r->pool, (const char**)&val, '=');
 
 		if(*val == '\0')
 			continue;
 
+		/* Unencode our value. */
 		for(size_t i = 0; i < strlen(val); ++i) {
 			if(val[i] == '+')
 				val[i] = ' ';
@@ -513,13 +536,73 @@ static void wren_parse_url_params(WrenState *wren_state, char *args)
 		ap_unescape_url((char*)key);
 		ap_unescape_url((char*)val);
 
+		/*
+		 * Check for key reuse. If we have any duplicates, we store a List as
+		 * the value of our Map's key/value pair.
+		 */
+		bool duplicate_key = false;
+		for(size_t i = 0; i < unique_keys; ++i) {
+			if(strcmp(keys[i].key, key) != 0)
+				continue;
+
+			/*
+			 * First duplicate encounter - convert the value from string to
+			 * list.
+			 */
+			if(keys[i].is_list == false) {
+				const char *val_stored = wrenGetSlotString(vm, keys[i].slot);
+				int val_slot = slot++;
+
+				/*
+				 * Move the string over to a new slot - we're going to reuse our
+				 * original slot for the list.
+				 */
+				wrenSetSlotString(vm, val_slot, val_stored);
+
+				/*
+				 * Create a new list in the slot that is +1 past the map key and put
+				 * our existing string in there.
+				 */
+				wrenSetSlotNewList(vm, keys[i].slot);
+				wrenInsertInList(vm, keys[i].slot, -1, val_slot);
+				keys[i].is_list = true;
+			}
+
+			/* Insert the new string. */
+			int val_slot = slot++;
+			wrenSetSlotString(vm, val_slot, val);
+			wrenInsertInList(vm, keys[i].slot, -1, val_slot);
+
+			duplicate_key = true;
+			break;
+		}
+
+		if(duplicate_key == true)
+			continue;
+
+		/*
+		 * Otherwise, we've hit a unique key. Create a Map key/value entry and
+		 * insert it.
+		 */
 		wrenSetSlotString(vm, slot, key);
 		wrenSetSlotString(vm, slot + 1, val);
 		wrenInsertInMap(vm, 0, slot, slot + 1);
 
+		keys[unique_keys].key = key;
+		keys[unique_keys].slot = slot + 1;
+
+		++unique_keys;
 		slot += 2;
 	}
 
+	/*
+	 * If we converted any duplicate values from strings to lists, we have to
+	 * reinsert them into the map.
+	 */
+	for(size_t i = 0; i < unique_keys; ++i) {
+		if(keys[i].is_list == true)
+			wrenInsertInMap(vm, 0, keys[i].slot - 1, keys[i].slot);
+	}
 }
 
 /**
