@@ -24,6 +24,8 @@
  */
 typedef struct {
 	request_rec *request_rec;
+	const char *content_type;
+	int status_code;
 	bool lock;
 	WrenVM *vm;
 } WrenState;
@@ -605,6 +607,30 @@ static void wren_fn_setCookie(WrenVM *vm)
 }
 
 /**
+ * Set the content type to be returned by the Wren handler on successful page
+ * delivery.
+ */
+static void wren_fn_setContentType(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+
+	if(wrenGetSlotType(vm, 1) == WREN_TYPE_STRING)
+		wren_state->content_type = wrenGetSlotString(vm, 1);
+}
+
+/**
+ * Set the HTTP status code to be returned by the Wren handler on successful
+ * page delivery.
+ */
+static void wren_fn_setStatusCode(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+
+	if(wrenGetSlotType(vm, 1) == WREN_TYPE_NUM)
+		wren_state->status_code = wrenGetSlotDouble(vm, 1) + 0.5;
+}
+
+/**
  * Maps foreign method signatures to functions. We receive a signature of a
  * function inside a class, inside a module, and see if we have something that
  * maps up.
@@ -622,6 +648,10 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 					return wren_fn_getCookie;
 				if(strcmp(signature, "setCookie(_,_,_,_)") == 0)
 					return wren_fn_setCookie;
+				if(strcmp(signature, "setContentType(_)") == 0)
+					return wren_fn_setContentType;
+				if(strcmp(signature, "setStatusCode(_)") == 0)
+					return wren_fn_setStatusCode;
 
 				if(strcmp(signature, "wrapped_getEnv()") == 0)
 					return wren_fn_getEnv;
@@ -715,6 +745,8 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 				"class Web {\n"
 				"	foreign static getCookie(a)\n"
 				"	foreign static setCookie(a,b,c,d)\n"
+				"	foreign static setContentType(a)\n"
+				"	foreign static setStatusCode(a)\n"
 				"	foreign static wrapped_getEnv()\n"
 				"	foreign static wrapped_parseGet()\n"
 				"	foreign static wrapped_parsePost()\n"
@@ -769,6 +801,8 @@ static WrenState* wren_acquire_state(request_rec *r)
 		wren_states[i].lock = true;
 		out = &wren_states[i];
 		out->request_rec = r;
+		out->content_type = NULL;
+		out->status_code = 200;
 		return out;
 	}
 
@@ -1082,13 +1116,19 @@ static int wren_handler(request_rec *r)
 		return ret;
 	}
 
-	ap_set_content_type(r, "text/html");
+	/* Run the provided Wren code. */
 	wrenInterpret(wren_state->vm, wren_code);
+
+	/* If Web.setContentType() hasn't been called, default to HTML. */
+	ap_set_content_type(r, wren_state->content_type ?: "text/html");
+
+	/* A page-supplied status code, or the default of 200. */
+	r->status = wren_state->status_code;
 
 	wren_release_state(wren_state);
 	free(wren_code);
 
-	return OK;
+	return ret;
 }
 
 static void register_hooks(apr_pool_t *pool)

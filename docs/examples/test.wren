@@ -4,8 +4,8 @@
  */
 import "random" for Random
 
-//Web.setContentType("text/json")
-//Web.setReturnCode(200) /* 200 is the default. */
+Web.setContentType("text/json")
+Web.setStatusCode(200) /* 200 is the default. */
 
 var numbers = []
 var random = Random.new()
