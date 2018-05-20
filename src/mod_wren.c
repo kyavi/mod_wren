@@ -92,7 +92,7 @@ static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
 			"<p><b>Line %d: </b>" /* line number */
 			"%s</p>" /* error message */
 			ERROR_END,
-			line, message
+			line > 0 ? line - 1 : line, message
 		);
 }
 
@@ -1059,8 +1059,14 @@ static void parse_write_html(char **wren_buf, size_t *wren_index,
 	if(html_len == 0 || (html_len == 1 && *(file_buf + *file_index) == '\n'))
 		return;
 
-	/* Start write */
-	parse_write(wren_buf, wren_index, wren_capacity, "\nSystem.write(\"");
+
+	/*
+	 * If the piece of code was one of our System.write() calls, append to it
+	 * to keep the line numbers in check.
+	 */
+	bool prev_was_write = *(*wren_buf + *wren_index - 1) == ')';
+	parse_write(wren_buf, wren_index, wren_capacity,
+			prev_was_write ? "+System.write(\"" : "System.write(\"");
 
 	/*
 	 * Write the actual HTML segment to the buffer, escaping forbidden
@@ -1095,7 +1101,7 @@ static void parse_write_html(char **wren_buf, size_t *wren_index,
 			file_index, html_len);
 
 	/* Close up the System.write. */
-	parse_write(wren_buf, wren_index, wren_capacity, "\")\n");
+	parse_write(wren_buf, wren_index, wren_capacity, "\")");
 }
 
 /**
@@ -1188,7 +1194,8 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 		if(next_block_open == (char*)INTPTR_MAX &&
 				next_expr_open == (char*)INTPTR_MAX)
 		{
-			size_t html_len = file_len - file_index;
+
+			size_t html_len = file_len - file_index + 1;
 			parse_write_html(&out_buf, &out_index, &out_capacity, file_buf,
 					&file_index, html_len);
 			break;
@@ -1213,7 +1220,7 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 					&file_index, html_len);
 		}
 
-		file_index += opening_tag_len;
+		file_index += opening_tag_len + 1;
 		char *closing_tag_pos = strstr(file_buf + file_index, closing_tag);
 
 		if(closing_tag_pos == NULL) {
@@ -1225,8 +1232,17 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 		}
 
 		if(expr == true) {
+			/*
+			 * If the piece of code was one of our System.write() calls, append to it
+			 * to keep the line numbers in check.
+			 */
+			bool prev_was_write = *(out_buf + out_index - 1) == ')';
 			parse_write(&out_buf, &out_index, &out_capacity,
-					"\nSystem.write(\"%(");
+					prev_was_write ? "+System.write(\"%(" : "System.write(\"%(");
+		}
+		else {
+			/* A full code block belongs on its own line. */
+			parse_write(&out_buf, &out_index, &out_capacity, "\n");
 		}
 
 		/*
@@ -1238,7 +1254,7 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 				&file_index, write_len);
 
 		if(expr == true)
-			parse_write(&out_buf, &out_index, &out_capacity, ")\")\n");
+			parse_write(&out_buf, &out_index, &out_capacity, ")\")");
 
 		file_index += closing_tag_len;
 	}
