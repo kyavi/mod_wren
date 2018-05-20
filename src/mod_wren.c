@@ -1207,8 +1207,10 @@ static void parse_write_html(char **wren_buf, size_t *wren_index,
  */
 static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 {
+	request_rec *r = wren_state->request_rec;
+
 	/* Open up a file and write it to a buffer we can work from. */
-	FILE *file = fopen(wren_state->request_rec->canonical_filename, "r");
+	FILE *file = fopen(r->canonical_filename, "r");
 	char *file_buf, *out_buf;
 	size_t file_len, read_len;
 
@@ -1221,6 +1223,7 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 
 	if(file_len == 0) {
 		*wren_code = strdup("");
+		fclose(file);
 		return OK;
 	}
 
@@ -1228,8 +1231,9 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 	 * We're making this +4 larger than needed so we can wrap it in curly braces
 	 * if we return it raw, plus one for NUL.
 	 */
-	file_buf = calloc(file_len + 5, 1);
+	file_buf = malloc(file_len + 5);
 	read_len = fread(file_buf + 2, 1, file_len, file);
+	file_buf[file_len + 1] = '\0';
 	fclose(file);
 
 	if(read_len != file_len) {
@@ -1246,6 +1250,7 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 		file_buf[1] = '\n';
 		file_buf[file_len + 1] = '\n';
 		file_buf[file_len + 2] = '}';
+		file_buf[file_len + 3] = '\0';
 
 		*wren_code = file_buf;
 		return OK;
@@ -1260,7 +1265,7 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 	size_t out_index = 0;
 	size_t out_capacity = MIN(128, file_len * PARSE_BUFFER_GROWTH_RATE);
 
-	out_buf = calloc(out_capacity, 1);
+	out_buf = malloc(out_capacity);
 	parse_write(&out_buf, &out_index, &out_capacity, "{\n");
 
 	/*
@@ -1347,8 +1352,10 @@ static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 
 	parse_write(&out_buf, &out_index, &out_capacity, "\n}");
 
-	free(file_buf);
+	out_buf[out_index] = '\0';
 	*wren_code = out_buf;
+
+	free(file_buf);
 	return OK;
 }
 
