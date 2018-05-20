@@ -30,25 +30,36 @@ for (x in env.keys) {
 
 ### static parseGet()
 
-Returns any GET parameters as a Map of key/value strings.
+Returns any GET parameters as a Map of key/value strings, or an empty table if
+there's nothing to parse.
 
 ```javascript
 /* Page request /?testing=true */
-var getParams = Web.parseGet()
-var testVal = getParams["testing"] || "not received"
 
-System.write("<div>Testing: %(testVal)</div>")
+var env = Web.getEnv()
+
+if (env["Request-Method"] == "GET") {
+	var getParams = Web.parseGet()
+	var testVal = getParams["testing"] || "not received"
+
+	System.write("<div>Testing: %(testVal)</div>")
+}
 ```
 
 ### static parsePost()
 
-Returns any POST parameters as a Map of key/value strings.
+Returns any POST parameters as a Map of key/value strings, or an empty table if
+there's nothing to parse.
 
 ```javascript
-var postParams = Web.parsePost()
-var username = postParams["username"]
+var env = Web.getEnv()
 
-System.write("<div>Username: %(username)</div>")
+if (env["Request-Method"] == "POST") {
+	var postParams = Web.parsePost()
+	var username = postParams["username"]
+
+	System.write("<div>Username: %(username)</div>")
+}
 ```
 
 ### static setContentType(type: String)

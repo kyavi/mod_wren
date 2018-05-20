@@ -438,10 +438,11 @@ static void wren_headers_to_map(WrenState *wren_state,
 static void wren_fn_getEnv(WrenVM *vm)
 {
 	WrenState *wren_state = wrenGetUserData(vm);
-	const apr_array_header_t *req_headers =
-		apr_table_elts(wren_state->request_rec->headers_in);
+	request_rec *r = wren_state->request_rec;
+
+	const apr_array_header_t *req_headers = apr_table_elts(r->headers_in);
 	const apr_array_header_t *subprocess_env =
-		apr_table_elts(wren_state->request_rec->subprocess_env);
+		apr_table_elts(r->subprocess_env);
 	int slot = 0;
 
 	/* Enough slots for a key value pair per headers, plus the map. */
@@ -450,6 +451,11 @@ static void wren_fn_getEnv(WrenVM *vm)
 
 	wren_headers_to_map(wren_state, req_headers, &slot);
 	wren_headers_to_map(wren_state, subprocess_env, &slot);
+
+	wrenSetSlotString(vm, slot, "Request-Method");
+	wrenSetSlotString(vm, slot + 1, r->method);
+	wrenInsertInMap(vm, 0, slot, slot + 1);
+	slot += 2;
 }
 
 /**
