@@ -619,6 +619,26 @@ static void wren_fn_setContentType(WrenVM *vm)
 }
 
 /**
+ * Set the content type to be returned by the Wren handler on successful page
+ * delivery.
+ *
+ * Slot 1/String: Header to write.
+ * Slot 2/String: Value to assign to header.
+ */
+static void wren_fn_setHeader(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	request_rec *r = wren_state->request_rec;
+
+	if(wrenGetSlotType(vm, 1) != WREN_TYPE_STRING ||
+			wrenGetSlotType(vm, 2) != WREN_TYPE_STRING)
+		return;
+
+	apr_table_set(r->headers_out,
+			wrenGetSlotString(vm, 1), wrenGetSlotString(vm, 2));
+}
+
+/**
  * Set the HTTP status code to be returned by the Wren handler on successful
  * page delivery.
  */
@@ -650,6 +670,8 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 					return wren_fn_setCookie;
 				if(strcmp(signature, "setContentType(_)") == 0)
 					return wren_fn_setContentType;
+				if(strcmp(signature, "setHeader(_,_)") == 0)
+					return wren_fn_setHeader;
 				if(strcmp(signature, "setStatusCode(_)") == 0)
 					return wren_fn_setStatusCode;
 
@@ -746,6 +768,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 				"	foreign static getCookie(a)\n"
 				"	foreign static setCookie(a,b,c,d)\n"
 				"	foreign static setContentType(a)\n"
+				"	foreign static setHeader(a,b)\n"
 				"	foreign static setStatusCode(a)\n"
 				"	foreign static wrapped_getEnv()\n"
 				"	foreign static wrapped_parseGet()\n"
