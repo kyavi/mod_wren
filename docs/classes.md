@@ -99,15 +99,27 @@ Set a page header with the given key/value pair.
 Web.setHeader("Location", "https://github.com/azufluup/mod_wren")
 ```
 
+### static setReturnCode(code: Num)
+
+Sets an
+[HTTP status code](https://en.wikipedia.org/wiki/List_of_HTTP_status_codes)
+as the page handler return value, throwing a server error. Set to 0 (OK) by
+default, which returns the page normally. To set a return status without
+throwing a server error, use ``Web.setStatusCode(key)``.
+
+```javascript
+Web.setReturnCode(404) /* Generate the server's 404 page. */
+```
+
 ### static setStatusCode(key: Num)
 
 Sets an
 [HTTP status code](https://en.wikipedia.org/wiki/List_of_HTTP_status_codes),
 indicating the page state after it has finished running, set to 200 (OK) by
-default.
+default. To generate a server response, use ``Web.setReturnCode(key)``.
 
 ```javascript
-Web.setStatusCode(403) /* Forbidden: maybe the user needs an account. */
+Web.setStatusCode(404) /* Forbidden: maybe the user needs an account. */
 ```
 
 

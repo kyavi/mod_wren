@@ -26,6 +26,7 @@ typedef struct {
 	request_rec *request_rec;
 	const char *content_type;
 	int status_code;
+	int return_code;
 	bool lock;
 	WrenVM *vm;
 } WrenState;
@@ -777,6 +778,18 @@ static void wren_fn_setStatusCode(WrenVM *vm)
 }
 
 /**
+ * Set the HTTP return code to be invoke a server page response (e.g. a 404
+ * error page).
+ */
+static void wren_fn_setReturnCode(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+
+	if(wrenGetSlotType(vm, 1) == WREN_TYPE_NUM)
+		wren_state->return_code = wrenGetSlotDouble(vm, 1) + 0.5;
+}
+
+/**
  * Maps foreign method signatures to functions. We receive a signature of a
  * function inside a class, inside a module, and see if we have something that
  * maps up.
@@ -798,6 +811,8 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 					return wren_fn_setContentType;
 				if(strcmp(signature, "setHeader(_,_)") == 0)
 					return wren_fn_setHeader;
+				if(strcmp(signature, "setReturnCode(_)") == 0)
+					return wren_fn_setReturnCode;
 				if(strcmp(signature, "setStatusCode(_)") == 0)
 					return wren_fn_setStatusCode;
 
@@ -897,6 +912,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 				"	foreign static setCookie(a,b,c,d)\n"
 				"	foreign static setContentType(a)\n"
 				"	foreign static setHeader(a,b)\n"
+				"	foreign static setReturnCode(a)\n"
 				"	foreign static setStatusCode(a)\n"
 				"	foreign static wrapped_getEnv()\n"
 				"	foreign static wrapped_parseGet()\n"
@@ -954,7 +970,8 @@ static WrenState* wren_acquire_state(request_rec *r)
 		out = &wren_states[i];
 		out->request_rec = r;
 		out->content_type = NULL;
-		out->status_code = 200;
+		out->status_code = HTTP_OK;
+		out->return_code = OK;
 		return out;
 	}
 
@@ -1280,6 +1297,12 @@ static int wren_handler(request_rec *r)
 
 	/* A page-supplied status code, or the default of 200. */
 	r->status = wren_state->status_code;
+
+	/*
+	 * A page-supplied return code that can invoke a server error, defaults
+	 * to OK.
+	 */
+	ret = wren_state->return_code;
 
 	wren_release_state(wren_state);
 	free(wren_code);
