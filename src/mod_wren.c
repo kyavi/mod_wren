@@ -245,6 +245,11 @@ static void wren_foreign_webdb_run(WrenVM *vm)
 		return;
 	}
 
+	if(db->alive == false) {
+		wrenSetSlotBool(vm, 0, false);
+		return;
+	}
+
 	run = wrenGetSlotString(vm, 1);
 	result = apr_dbd_query(db->driver, db->handle, &rows, run);
 
@@ -278,6 +283,11 @@ static void wren_foreign_webdb_query(WrenVM *vm)
 
 	if(wrenGetSlotType(vm, 1) != WREN_TYPE_STRING) {
 		db->error = "Type error in db.query(): must provide a string.";
+		wrenSetSlotNull(vm, 0);
+		return;
+	}
+
+	if(db->alive == false) {
 		wrenSetSlotNull(vm, 0);
 		return;
 	}
@@ -353,6 +363,11 @@ static void wren_foreign_webdb_escape(WrenVM *vm)
 
 	if(wrenGetSlotType(vm, 1) != WREN_TYPE_STRING) {
 		db->error = "Type error in db.query(): must provide a string.";
+		wrenSetSlotNull(vm, 0);
+		return;
+	}
+
+	if(db->alive == false) {
 		wrenSetSlotNull(vm, 0);
 		return;
 	}
