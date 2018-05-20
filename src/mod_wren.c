@@ -907,32 +907,53 @@ static void parse_write_html(char **wren_buf, size_t *wren_index,
  * The rest is regular HTML, which gets its special characters escaped before
  * being placed in a System.write("...") call.
  *
- * Returns an allocated string on success, otherwise NULL.
+ * Returns OK with wren_code allocated on success, otherwise a failing HTTP
+ * code with no allocation.
  */
-static char* wren_parse(WrenState *wren_state)
+static int wren_parse(WrenState *wren_state, char **wren_code, bool raw)
 {
 	/* Open up a file and write it to a buffer we can work from. */
-	FILE *file = fopen(wren_state->request_rec->filename, "r");
+	FILE *file = fopen(wren_state->request_rec->canonical_filename, "r");
 	char *file_buf, *out_buf;
 	size_t file_len, read_len;
 
 	if(file == NULL)
-		return NULL;
+		return errno == ENOENT ? HTTP_NOT_FOUND : HTTP_INTERNAL_SERVER_ERROR;
 
 	fseek(file, 0, SEEK_END);
 	file_len = ftell(file) ?: 1;
 	fseek(file, 0, SEEK_SET);
 
-	if(file_len == 0)
-		return strdup("");
+	if(file_len == 0) {
+		*wren_code = strdup("");
+		return OK;
+	}
 
-	file_buf = calloc(file_len + 1, 1);
-	read_len = fread(file_buf, 1, file_len, file);
+	/*
+	 * We're making this +4 larger than needed so we can wrap it in curly braces
+	 * if we return it raw, plus one for NUL.
+	 */
+	file_buf = calloc(file_len + 5, 1);
+	read_len = fread(file_buf + 2, 1, file_len, file);
 	fclose(file);
 
 	if(read_len != file_len) {
 		free(file_buf);
-		return NULL;
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	/*
+	 * We want to accept the whole file as Wren without parsing, so we wrap it
+	 * in its own scope and send it on its way.
+	 */
+	if(raw == true) {
+		file_buf[0] = '{';
+		file_buf[1] = '\n';
+		file_buf[file_len + 1] = '\n';
+		file_buf[file_len + 2] = '}';
+
+		*wren_code = file_buf;
+		return OK;
 	}
 
 	/*
@@ -940,13 +961,9 @@ static char* wren_parse(WrenState *wren_state)
 	 * bigger than the input to account for the function calls and escaping
 	 * we add.
 	 */
-	size_t file_index = 0;
+	size_t file_index = 2;
 	size_t out_index = 0;
 	size_t out_capacity = MIN(128, file_len * PARSE_BUFFER_GROWTH_RATE);
-
-	/* Whilst this is a work in progress - easily request the raw file. */
-	if(strcmp(wren_state->request_rec->args ?: "", "raw") == 0)
-		return file_buf;
 
 	out_buf = calloc(out_capacity, 1);
 	parse_write(&out_buf, &out_index, &out_capacity, "{\n");
@@ -1026,7 +1043,8 @@ static char* wren_parse(WrenState *wren_state)
 	parse_write(&out_buf, &out_index, &out_capacity, "\n}");
 
 	free(file_buf);
-	return out_buf;
+	*wren_code = out_buf;
+	return OK;
 }
 
 /**
@@ -1036,7 +1054,17 @@ static char* wren_parse(WrenState *wren_state)
 static int wren_handler(request_rec *r)
 {
 	WrenState *wren_state;
-	char *wren_code;
+	char *wren_code = NULL;
+	int ret = OK;
+
+	/*
+	 * If the file extension is .wren, we'll use the raw file as Wren code.
+	 * Otherwise we'll parse it as mixed HTML/Wren.
+	 */
+	bool raw_wren = ({
+		const char *file_extension = strrchr(r->canonical_filename, '.');
+		strcmp(file_extension ?: "", ".wren") == 0;
+	});
 
 	/* Make sure the request is for us. */
 	if(strcmp(r->handler ?: "", "wren") != 0)
@@ -1049,22 +1077,13 @@ static int wren_handler(request_rec *r)
 
 	wren_state = wren_acquire_state(r);
 
-	if((wren_code = wren_parse(wren_state)) == NULL) {
+	if((ret = wren_parse(wren_state, &wren_code, raw_wren)) != OK) {
 		wren_release_state(wren_state);
-		return HTTP_INTERNAL_SERVER_ERROR;
+		return ret;
 	}
 
-	/* Pre-release debug: ?raw will print the generated Wren code. */
-	if(strcmp(r->args ?: "", "compiled") == 0 ||
-			strcmp(r->args ?: "", "raw") == 0)
-	{
-		ap_set_content_type(r, "text/plain");
-		ap_rprintf(r, "%s", wren_code);
-	}
-	else {
-		ap_set_content_type(r, "text/html");
-		wrenInterpret(wren_state->vm, wren_code);
-	}
+	ap_set_content_type(r, "text/html");
+	wrenInterpret(wren_state->vm, wren_code);
 
 	wren_release_state(wren_state);
 	free(wren_code);
