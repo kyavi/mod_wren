@@ -87,11 +87,15 @@ static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
 	if(message[0] == '(' && strcmp(message, "(script)") == 0)
 		return;
 
+	bool display_module_name = module != NULL && strcmp(module, "main") != 0;
+
 	ap_rprintf(wren_state->request_rec,
 			ERROR_START
-			"<p><b>Line %d: </b>" /* line number */
+			"<p><b>%s%sine %d: </b>" /* line number */
 			"%s</p>" /* error message */
 			ERROR_END,
+			display_module_name == true ? module : "",
+			display_module_name == true ? ": l" : "L",
 			line > 0 ? line - 1 : line, message
 		);
 }
@@ -878,6 +882,87 @@ static WrenForeignClassMethods wren_bind_foreign_class(WrenVM *vm,
 	return ret;
 }
 
+/**
+ * Load a separate module to use in the current scope.
+ *
+ * We try to keep the syntax as close to regular Wren imports as possible:
+ *
+ *   - 'import "something"' will return something.wren relative to the current
+ *     directory, if it exists.
+ *
+ *   - 'import "/something"' will work from the web server root and return
+ *     something.wren from there, if it exists.
+ */
+static char* wren_load_module(WrenVM *vm, const char *name)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	request_rec *r = wren_state->request_rec;
+
+	char path[FILENAME_MAX];
+	size_t path_len = 0;
+
+	if(name[0] == '/') {
+		const char *document_root = ap_context_document_root(r);
+
+		/* Start from the web server root. */
+		strcpy(path, document_root);
+		path_len = strlen(document_root);
+
+		/* Add on the filename provided to us. */
+		strcpy(path + path_len, name);
+		path_len += strlen(name);
+	}
+	else {
+		/*
+		 * Get the current filepath and strip off the file name to get out
+		 * directory.
+		 */
+		const char *dirname_end = strrchr(r->canonical_filename, '/') + 1;
+		size_t dirname_len = dirname_end - r->canonical_filename;
+
+		strncpy(path, r->canonical_filename, dirname_len);
+		path_len += dirname_len;
+
+		/* And add on our name. */
+		strcpy(path + path_len, name);
+		path_len += strlen(name);
+	}
+
+	strcpy(path + path_len, ".wren");
+	path_len += 5;
+	path[path_len + strlen(name)] = '\0';
+
+	/* We've got a complete path, so try load the file and return the code. */
+
+	FILE *file = fopen(path, "r");
+	size_t file_len = 0;
+
+	if(file == NULL)
+		return NULL;
+
+	fseek(file, 0, SEEK_END);
+	file_len = ftell(file) ?: 1;
+	fseek(file, 0, SEEK_SET);
+
+	if(file_len == 0) {
+		fclose(file);
+		return NULL;
+	}
+
+	char *output_buf = malloc(file_len + 1);
+	size_t read_len = fread(output_buf, 1, file_len, file);
+
+	output_buf[file_len] = '\0';
+	fclose(file);
+
+	if(read_len != file_len) {
+		free(output_buf);
+		return NULL;
+	}
+
+	return output_buf;
+}
+
 static void module_init(apr_pool_t *pool, server_rec *s)
 {
 	ap_log_error("mod_wren.c", __LINE__, 1, APLOG_NOTICE, -1, NULL,
@@ -889,6 +974,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 	config.errorFn = wren_err;
 	config.bindForeignMethodFn = wren_bind_foreign_method;
 	config.bindForeignClassFn  = wren_bind_foreign_class;
+	config.loadModuleFn        = wren_load_module;
 
 	wren_states = calloc(NUM_WREN_STATES, sizeof(WrenState));
 
