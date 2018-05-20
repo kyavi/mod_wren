@@ -1175,8 +1175,12 @@ static int wren_handler(request_rec *r)
 
 	/* TODO: allow other methods (most critically, POST). */
 	if(r->method_number != M_GET &&
-			r->method_number != M_POST)
+			r->method_number != M_POST &&
+			r->method_number != M_PUT &&
+			r->method_number != M_DELETE)
+	{
 		return HTTP_METHOD_NOT_ALLOWED;
+	}
 
 	wren_state = wren_acquire_state(r);
 
