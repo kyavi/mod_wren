@@ -525,7 +525,7 @@ static void wren_fn_parseGet(WrenVM *vm)
 	char *args = wren_state->request_rec->args;
 
 	if(args == NULL) {
-		wrenSetSlotNull(vm, 0);
+		wrenSetSlotNewMap(vm, 0);
 		return;
 	}
 
@@ -544,7 +544,7 @@ static void wren_fn_parsePost(WrenVM *vm)
 	if(ap_setup_client_block(r, REQUEST_CHUNKED_ERROR) != OK ||
 			ap_should_client_block(r) == false)
 	{
-		wrenSetSlotNull(vm, 0);
+		wrenSetSlotNewMap(vm, 0);
 		return;
 	}
 
