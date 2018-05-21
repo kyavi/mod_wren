@@ -82,3 +82,21 @@ directory indexes, you can also add:
 ```apache
 DirectoryIndex index.wrp index.html
 ```
+
+## Error reporting
+
+Any errors in your Wren program will display as on the page, indicating the
+problematic module and line number. This can be disabled in your Apache config
+with the directive ``ModWrenErrors 0``.
+
+Wren makes [meaningful use of newlines](http://wren.io/syntax.html#newlines) to
+close statement. mod_wren follows suit to keep error numbers correctly
+represent source code, asking that all embedded Wren opening tags are followed
+by a newline, and closing tags are placed on their own line:
+
+```xml
+<h1>Correct</h1><?wren
+	System.write("These tags are opening and closing the Wren block correctly.")
+?>
+<p>That's how it's done!</p>
+```

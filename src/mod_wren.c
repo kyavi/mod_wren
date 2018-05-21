@@ -43,8 +43,11 @@ typedef struct {
 
 /* TODO: Add mutex locks for enabling multiple states. */
 #define NUM_WREN_STATES 8
-WrenState *wren_states;
+static WrenState *wren_states;
 static pthread_mutex_t wren_states_lock;
+
+/* Set by the ModWrenLogging directive. */
+static bool wren_error_logging = true;
 
 #define ERROR_START \
 	"<div style='display: inline-block; width: 100%%; " \
@@ -81,6 +84,9 @@ static void wren_err(WrenVM *vm, WrenErrorType type, const char *module,
 		int line, const char *message)
 {
 	WrenState *wren_state = wrenGetUserData(vm);
+
+	if(wren_error_logging == false)
+		return;
 
 	/*
 	 * Wren prints out the script name, which doesn't help very much.
@@ -1457,12 +1463,32 @@ static void register_hooks(apr_pool_t *pool)
 	ap_hook_handler(wren_handler, NULL, NULL, APR_HOOK_LAST);
 }
 
+/**
+ * Directive callback for setting ModWrenErrors.
+ *
+ * Expects 0 to disable errors, 1 to enable.
+ */
+static const char *wren_set_error_logging(cmd_parms *cmd, void *cfg,
+		const char *arg)
+{
+	wren_error_logging = atoi(arg) > 0 ? true : false;
+
+	return NULL;
+}
+
+static const command_rec wren_directives[] = {
+	AP_INIT_TAKE1("ModWrenErrors", wren_set_error_logging, NULL, RSRC_CONF,
+			"Sets the on-page display of error pages. "
+			"0 to disable errors, 1 to enable"),
+	{ NULL }
+};
+
 module AP_MODULE_DECLARE_DATA wren_module = {
 	STANDARD20_MODULE_STUFF,
 	NULL,
 	NULL,
 	NULL,
 	NULL,
-	NULL,
+	wren_directives,
 	register_hooks
 };
