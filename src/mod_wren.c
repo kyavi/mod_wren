@@ -7,6 +7,7 @@
 #include <http_config.h>
 #include <http_log.h>
 #include <http_protocol.h>
+#include <pthread.h>
 
 #include <apache2/mod_dbd.h>
 
@@ -41,8 +42,9 @@ typedef struct {
 } DatabaseConn;
 
 /* TODO: Add mutex locks for enabling multiple states. */
-#define NUM_WREN_STATES 1
+#define NUM_WREN_STATES 8
 WrenState *wren_states;
+static pthread_mutex_t wren_states_lock;
 
 #define ERROR_START \
 	"<div style='display: inline-block; width: 100%%; " \
@@ -977,9 +979,11 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 	config.loadModuleFn        = wren_load_module;
 
 	wren_states = calloc(NUM_WREN_STATES, sizeof(WrenState));
+	pthread_mutex_init(&wren_states_lock, 0);
 
 	for(size_t i = 0; i < NUM_WREN_STATES; ++i) {
 		wren_states[i].vm = wrenNewVM(&config);
+
 		wrenSetUserData(wren_states[i].vm, &wren_states[i]);
 
 		/*
@@ -1046,18 +1050,24 @@ static void module_init(apr_pool_t *pool, server_rec *s)
  */
 static WrenState* wren_acquire_state(request_rec *r)
 {
-	WrenState *out;
+	WrenState *out = NULL;
 
+	pthread_mutex_lock(&wren_states_lock);
 	for(size_t i = 0; i < NUM_WREN_STATES; ++i) {
-		if(wren_states[i].lock == true)
-			continue;
+		if(wren_states[i].lock == false) {
+			wren_states[i].lock = true;
+			out = &wren_states[i];
+			break;
+		}
+	}
+	pthread_mutex_unlock(&wren_states_lock);
 
-		wren_states[i].lock = true;
-		out = &wren_states[i];
+	if(out != NULL) {
 		out->request_rec = r;
 		out->content_type = NULL;
 		out->status_code = HTTP_OK;
 		out->return_code = OK;
+
 		return out;
 	}
 
