@@ -1071,6 +1071,12 @@ static WrenState* wren_acquire_state(request_rec *r)
 static void wren_release_state(WrenState *wren_state)
 {
 	/*
+	 * Clear out all modules, so user-defined modules can be reimported
+	 * on page load (since they may have changed).
+	 */
+	wrenUnloadModules(wren_state->vm);
+
+	/*
 	 * Forces cleanup of all foreign classes, which means all our hanging
 	 * database connections will get closed.
 	 */

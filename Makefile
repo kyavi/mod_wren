@@ -18,7 +18,7 @@ $(OUTDIR)/mod_wren.la: $(WRENDIR)/wren $(SRCDIR)/mod_wren.c Makefile
 	@rm -rf $(SRCDIR)/.libs
 
 ##
-# Wren isn't exactly versioned at present (except for 1.0.0, in 2016), so
+# Wren isn't exactly versioned at present (except for 0.1.0, in 2016), so
 # we're going to grab the latest and hope it goes well.
 #
 $(WRENDIR):
@@ -27,7 +27,9 @@ $(WRENDIR):
 $(WRENDIR)/wren: $(WRENDIR)
 	cd $(WRENDIR) && \
 		git checkout 40c927f4402bb6ff74fe8aa257bf8042eeff6544 && \
-		git apply ../../map_api.diff && make
+		git apply ../../wren_patches/map_api.diff &&   \
+		git apply ../../wren_patches/unload_modules.diff && \
+		make
 
 clean:
 	@rm -rf $(OUTDIR)

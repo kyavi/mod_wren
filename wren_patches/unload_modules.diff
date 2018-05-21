@@ -1,0 +1,30 @@
+diff --git a/src/include/wren.h b/src/include/wren.h
+index 2c91afa..a51a9ee 100644
+--- a/src/include/wren.h
++++ b/src/include/wren.h
+@@ -252,6 +252,9 @@ WrenVM* wrenNewVM(WrenConfiguration* configuration);
+ // call to [wrenNewVM].
+ void wrenFreeVM(WrenVM* vm);
+ 
++// Removes all loaded modules, including built-ins.
++void wrenUnloadModules(WrenVM* vm);
++
+ // Immediately run the garbage collector to free unused memory.
+ void wrenCollectGarbage(WrenVM* vm);
+ 
+diff --git a/src/vm/wren_vm.c b/src/vm/wren_vm.c
+index 5a7c132..37961ce 100644
+--- a/src/vm/wren_vm.c
++++ b/src/vm/wren_vm.c
+@@ -107,6 +107,11 @@ void wrenFreeVM(WrenVM* vm)
+   DEALLOCATE(vm, vm);
+ }
+ 
++void wrenUnloadModules(WrenVM* vm)
++{
++  wrenMapClear(vm, vm->modules);
++}
++
+ void wrenCollectGarbage(WrenVM* vm)
+ {
+ #if WREN_DEBUG_TRACE_MEMORY || WREN_DEBUG_TRACE_GC
