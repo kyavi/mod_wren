@@ -16,7 +16,7 @@ with the extension **.wrp**:
 
 import "random" for Random
 
-var random = random.new()
+var random = Random.new()
 ?>
 <html>
 	<body>
