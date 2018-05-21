@@ -100,3 +100,17 @@ by a newline, and closing tags are placed on their own line:
 ?>
 <p>That's how it's done!</p>
 ```
+
+## Classes and Modules
+
+mod_wren supplies
+[new classes](https://github.com/azufluup/mod_wren/docs/classes.md) for
+interacting with the server.
+
+As with regular Wren, you can import other modules into your current document.
+
+``import "modules/something"`` will try to load ``modules/something.wren``
+relative to the directory of your current document.
+
+``import "/modules/something"`` will try to load from your web server root
+(e.g. ``/var/www/html/modules/something``).
