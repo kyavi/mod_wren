@@ -231,6 +231,19 @@ static void wren_foreign_webdb_close(WrenVM *vm)
 }
 
 /**
+ * WebDB.isAlive
+ *
+ * Getter, checking whether a database connection is still active.
+ */
+static void wren_foreign_webdb_isAlive(WrenVM *vm)
+{
+	WrenState *wren_state = wrenGetUserData(vm);
+	DatabaseConn *db = (DatabaseConn*)wrenGetSlotForeign(vm, 0);
+
+	wrenSetSlotBool(vm, 0, db->alive);
+}
+
+/**
  * WebDB.run()
  *
  * Runs a provided statement.
@@ -838,6 +851,8 @@ static WrenForeignMethodFn wren_bind_foreign_method(WrenVM *vm,
 					return wren_foreign_webdb_open;
 				if(strcmp(signature, "close()") == 0)
 					return wren_foreign_webdb_close;
+				if(strcmp(signature, "isAlive") == 0)
+					return wren_foreign_webdb_isAlive;
 				if(strcmp(signature, "run(_)") == 0)
 					return wren_foreign_webdb_run;
 				if(strcmp(signature, "escape(_)") == 0)
@@ -1029,6 +1044,7 @@ static void module_init(apr_pool_t *pool, server_rec *s)
 				"foreign class WebDB {\n"
 				"	foreign construct open(a)\n"
 				"	foreign close()\n"
+				"	foreign isAlive\n"
 				"	foreign run(a)\n"
 				"	foreign escape(a)\n"
 				"	foreign error\n"

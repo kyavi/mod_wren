@@ -144,6 +144,17 @@ var db = WebDB.open("host=localhost,user=root")
 db.close()
 ```
 
+### WebDB.isAlive getter
+
+Getter to indicate whether the database connection is currently open.
+
+```javascript
+var db = WebDB.open("host=localhost,user=root")
+System.write(db.isAlive) /* True */
+db.close()
+System.write(db.isAlive) /* False */
+```
+
 ### WebDB.run(command: String)
 
 Run a database command. Returns true on success, otherwise false. Sets
@@ -193,7 +204,7 @@ Getter for the error message string of the last reported failure, or Null if
 there have been no errors.
 
 ```javascript
-var WebDB.open("host=localhost,user=root")
+var db = WebDB.open("host=localhost,user=root")
 db.run("use NonexistentTable")
 System.write("%(db.error || "Everything is fine")")
 ```
