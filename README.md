@@ -1,7 +1,7 @@
 # mod_wren
 
 mod_wren is an Apache server module which embeds the scripting language
-[wren](https://wren.io)([GitHub](https://github.com/munificent/wren). The
+[Wren](https://wren.io) ([GitHub](https://github.com/munificent/wren)). The
 module supports all of Wren's usual features, along with a small set of
 functions for standard server-side programming such as parsing GET/POST
 requests, getting and setting cookies, and database interaction.
@@ -55,6 +55,8 @@ and depends on having
 build and install:
 
 ```bash
+git clone https://github.com/azufluup/mod_wren
+cd mod_wren
 make
 make install # Requires privileges in /etc/apache2
 ```
@@ -90,9 +92,9 @@ problematic module and line number. This can be disabled in your Apache config
 with the directive ``ModWrenErrors 0``.
 
 Wren makes [meaningful use of newlines](http://wren.io/syntax.html#newlines) to
-close statement. mod_wren follows suit to keep error numbers correctly
-represent source code, asking that all embedded Wren opening tags are followed
-by a newline, and closing tags are placed on their own line:
+close statements. mod_wren follows suit to keep line numbers reported in error
+messages synchronised with source code. For this to work, Wren opening tags
+should be followed by a newline, and closing tags placed on their own line:
 
 ```xml
 <h1>Correct</h1><?wren
@@ -104,7 +106,7 @@ by a newline, and closing tags are placed on their own line:
 ## Classes and Modules
 
 mod_wren supplies
-[new classes](https://github.com/azufluup/mod_wren/docs/classes.md) for
+[new classes](https://github.com/kyavi/mod_wren/docs/classes.md) for
 interacting with the server.
 
 As with regular Wren, you can import other modules into your current document.
